@@ -12,6 +12,8 @@ import warnings
 from datetime import datetime, timedelta
 from collections import Counter
 
+import requests
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -458,7 +460,103 @@ Formato de respuesta:
 - Tu resultado: {pct_pos:.1f}%
 - {"✅ Por encima del promedio" if pct_pos > benchmark else "⚠️ Oportunidad de mejora"}
 
-*Nota: Configura `GROQ_API_KEY` para obtener insights más profundos con IA.*
+*Nota: Configura `GROQ_API_KEY` o `HF_API_TOKEN` para obtener insights más profundos con IA.*
+"""
+
+
+# ── IA Contextual: HuggingFace (Llama 3.2) ────────────────────────────────────
+class HuggingFaceAnalyzer:
+    """
+    Análisis contextual usando HuggingFace Inference API (Llama-3.2-3B-Instruct).
+    El token se lee desde st.secrets['HF_API_TOKEN'] o la variable de entorno HF_API_TOKEN.
+    """
+
+    API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-3B-Instruct"
+
+    def __init__(self):
+        self.api_token = ""
+        try:
+            self.api_token = st.secrets.get("HF_API_TOKEN", "")
+        except Exception:
+            pass
+        if not self.api_token:
+            self.api_token = os.getenv("HF_API_TOKEN", "")
+
+    @property
+    def available(self) -> bool:
+        return bool(self.api_token)
+
+    def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        """Genera insights usando HuggingFace o estadísticas como fallback."""
+        if self.available:
+            return self._hf_analysis(df_analyzed, linea)
+        return self._fallback_analysis(df_analyzed, linea)
+
+    def _hf_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        total = len(df_analyzed)
+        if total == 0:
+            return "No hay datos suficientes para el análisis."
+
+        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
+        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+
+        prompt = (
+            f"Eres analista del sector asegurador colombiano (Superfinanciera).\n\n"
+            f"Datos: {total} respuestas, {pct_pos:.1f}% positivo, {pct_neg:.1f}% negativo\n"
+            f"Línea: {linea or 'Todas'}\n\n"
+            f"Da 3 insights clave y 2 recomendaciones para Colombia (max 250 palabras)."
+        )
+
+        payload = {
+            "inputs": prompt,
+            "parameters": {"max_new_tokens": 500, "temperature": 0.7},
+        }
+        headers = {"Authorization": f"Bearer {self.api_token}"}
+
+        try:
+            response = requests.post(
+                self.API_URL, headers=headers, json=payload, timeout=30
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and data:
+                    text = data[0].get("generated_text", "")
+                    # Strip the echoed prompt from the response
+                    return text.replace(prompt, "").strip() or text.strip()
+            return self._fallback_analysis(df_analyzed, linea)
+        except Exception:
+            return self._fallback_analysis(df_analyzed, linea)
+
+    def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        total = len(df_analyzed)
+        if total == 0:
+            return "No hay datos suficientes para el análisis."
+
+        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
+        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+        benchmark = SECTOR_BENCHMARK
+
+        return f"""
+## 🎯 Insights Clave
+
+1. **Satisfacción General**: Con {pct_pos:.1f}% de sentimientos positivos, la línea {"supera" if pct_pos > benchmark else "requiere mejoras para alcanzar"} el benchmark del sector ({benchmark}%).
+
+2. **Áreas de Atención**: {pct_neg:.1f}% de respuestas negativas indican oportunidades de mejora en experiencia del cliente.
+
+3. **Confianza del Modelo**: Análisis robusto basado en {total} respuestas reales de clientes.
+
+## 💡 Recomendaciones
+
+1. **Priorizar**: Analizar comentarios negativos para identificar puntos de dolor recurrentes.
+
+2. **Amplificar**: Documentar y replicar las experiencias positivas como mejores prácticas internas.
+
+## 📊 Benchmark Sector Asegurador Colombia
+- Promedio industria: ~{benchmark}% satisfacción
+- Tu resultado: {pct_pos:.1f}%
+- {"✅ Por encima del promedio" if pct_pos > benchmark else "⚠️ Oportunidad de mejora"}
+
+*Nota: Configura `HF_API_TOKEN` en secrets.toml para obtener insights más profundos con IA.*
 """
 
 
@@ -505,10 +603,25 @@ def detect_columns(df: pd.DataFrame) -> dict:
     return {"atributo": attr_col, "valor": val_col, "linea": linea_col}
 
 
+def _normalize_attribute_text(series: pd.Series) -> pd.Series:
+    """
+    Normalizes attribute text to enable flexible regex matching.
+    Handles: newlines, multiple whitespace, and trailing numbers.
+    """
+    return (
+        series.astype(str)
+        .str.replace(r"\n", " ", regex=True)
+        .str.replace(r"\s+", " ", regex=True)
+        .str.replace(r"\s*\d+\s*$", "", regex=True)
+        .str.strip()
+    )
+
+
 def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None) -> pd.DataFrame:
     """
     Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
-    Usa búsqueda flexible con regex (.str.contains) para manejar variaciones de texto.
+    Usa búsqueda flexible con regex (.str.contains) para manejar variaciones de texto,
+    incluyendo saltos de línea, espacios múltiples y números al final.
     """
     cols = detect_columns(df)
     col_attr = cols["atributo"]
@@ -520,10 +633,13 @@ def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None)
     if col_val is None:
         col_val = df.columns[1] if len(df.columns) > 1 else df.columns[0]
 
-    # Build combined regex mask from patterns
+    # Normalize attribute text to handle \n, multiple spaces and trailing numbers
+    attr_clean = _normalize_attribute_text(df[col_attr])
+
+    # Build combined regex mask from patterns (applied to normalized text)
     mask = pd.Series([False] * len(df), index=df.index)
     for pattern, _ in ATTRIBUTE_PATTERNS:
-        mask |= df[col_attr].astype(str).str.contains(pattern, case=False, na=False, regex=True)
+        mask |= attr_clean.str.contains(pattern, case=False, na=False, regex=True)
 
     # Also include exact target attributes (backward compatibility)
     mask |= df[col_attr].isin(TARGET_ATTRIBUTES)
@@ -1022,7 +1138,18 @@ def render_tab_ai(df: pd.DataFrame):
     st.subheader("🤖 Insights con IA")
     st.markdown("*Análisis contextualizado para el sector asegurador colombiano*")
 
-    col1, col2 = st.columns([2, 1])
+    # Instantiate analyzers once per render, outside the column layout blocks
+    groq_ai = ColombianInsuranceAI()
+    hf_ai = HuggingFaceAnalyzer()
+
+    proveedor_options = []
+    if groq_ai.client:
+        proveedor_options.append("🦙 Groq (Llama 3.1)")
+    if hf_ai.available:
+        proveedor_options.append("🤗 HuggingFace (Llama 3.2)")
+    proveedor_options.append("📊 Estadístico")
+
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
         lineas_disponibles = ["📊 Todas las líneas"]
         if "linea_negocio" in df.columns:
@@ -1030,29 +1157,40 @@ def render_tab_ai(df: pd.DataFrame):
         linea_ia = st.selectbox("Selecciona línea de negocio:", options=lineas_disponibles)
 
     with col2:
+        proveedor = st.selectbox("Proveedor de IA:", options=proveedor_options)
+
+    with col3:
         generar = st.button("🔮 Generar Insights", type="primary", use_container_width=True)
 
     if generar:
         st.session_state["generate_ia"] = True
+        st.session_state["ia_proveedor"] = proveedor
 
     if st.session_state.get("generate_ia", False):
+        selected_provider = st.session_state.get("ia_proveedor", proveedor)
         with st.spinner("🧠 Analizando con contexto del sector asegurador colombiano…"):
-            ai_analyzer = ColombianInsuranceAI()
+            if "HuggingFace" in selected_provider:
+                analyzer_obj = hf_ai
+            else:
+                analyzer_obj = groq_ai
 
             if "Todas" in linea_ia:
-                insights = ai_analyzer.analyze_with_context(df)
+                insights = analyzer_obj.analyze_with_context(df)
             else:
                 linea_clean = linea_ia.replace("📋 ", "")
                 linea_df = df[df["linea_negocio"] == linea_clean] if "linea_negocio" in df.columns else df
-                insights = ai_analyzer.analyze_with_context(linea_df, linea_clean)
+                insights = analyzer_obj.analyze_with_context(linea_df, linea_clean)
 
             st.markdown(insights)
             st.session_state["generate_ia"] = False
 
-    if not st.session_state.get("generate_ia", False) and "GROQ_API_KEY" not in os.environ:
+    groq_configured = groq_ai.client is not None
+    hf_configured = hf_ai.available
+    if not st.session_state.get("generate_ia", False) and not groq_configured and not hf_configured:
         st.info(
-            "💡 Para obtener insights más profundos con IA, configura tu `GROQ_API_KEY`. "
-            "Obtén una API key gratis en https://console.groq.com"
+            "💡 Para obtener insights más profundos con IA, configura tu `GROQ_API_KEY` "
+            "(https://console.groq.com) o tu `HF_API_TOKEN` (https://huggingface.co/settings/tokens) "
+            "en `.streamlit/secrets.toml`."
         )
 
 
