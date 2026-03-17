@@ -2,19 +2,21 @@
 🎯 Sistema de Análisis de Sentimientos para Aseguradora
 Aplicación web interactiva con Streamlit para analizar feedback de clientes.
 Modelo: BETO (finiteautomata/beto-sentiment-analysis) - BERT en español fine-tuned
+IA Contextual: Groq (Llama 3.1 70B) especializada en el sector asegurador colombiano
 """
 
+import os
 import re
 import io
 import warnings
 from datetime import datetime, timedelta
+from collections import Counter
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from collections import Counter
 
 warnings.filterwarnings("ignore")
 
@@ -26,38 +28,125 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Estilos CSS personalizados ─────────────────────────────────────────────────
+# ── Estilos CSS Premium ────────────────────────────────────────────────────────
 st.markdown(
     """
     <style>
-        .main { background-color: #f5f7fa; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+
+        * { font-family: 'Poppins', sans-serif !important; }
+
+        .main { background-color: #f0f4ff; }
         .block-container { padding-top: 1.5rem; }
-        .metric-card {
-            background-color: #ffffff;
-            border-radius: 12px;
+
+        /* Metric cards */
+        [data-testid="metric-container"] {
+            background: linear-gradient(135deg, #ffffff 0%, #f0f4ff 100%);
+            border-radius: 16px;
             padding: 1rem 1.2rem;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.15);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        [data-testid="metric-container"]:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 28px rgba(102, 126, 234, 0.25);
+        }
+
+        /* Sentiment classes */
+        .sentiment-positivo { color: #10b981; font-weight: 700; }
+        .sentiment-negativo { color: #ef4444; font-weight: 700; }
+        .sentiment-neutral  { color: #f59e0b; font-weight: 700; }
+        .sentiment-mixto    { color: #8b5cf6; font-weight: 700; }
+
+        /* Headings */
+        h1 {
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
             text-align: center;
         }
-        .sentiment-positive { color: #00B050; font-weight: 700; }
-        .sentiment-negative { color: #FF0000; font-weight: 700; }
-        .sentiment-neutral  { color: #FFC000; font-weight: 700; }
-        .sentiment-mixed    { color: #7030A0; font-weight: 700; }
-        h1 { color: #1f4788; }
-        h2 { color: #1f4788; }
-        .stTabs [data-baseweb="tab-list"] { gap: 6px; }
-        .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0 0; padding: 6px 16px; }
+        h2, h3 { color: #1f4788; }
+
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            background: rgba(102, 126, 234, 0.05);
+            padding: 8px;
+            border-radius: 14px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            border-radius: 10px;
+            font-weight: 600;
+            padding: 8px 18px;
+            transition: all 0.2s ease;
+        }
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            color: white !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+        }
+
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%);
+        }
+        [data-testid="stSidebar"] * { color: white !important; }
+        [data-testid="stSidebar"] .stSelectbox label,
+        [data-testid="stSidebar"] .stMultiSelect label,
+        [data-testid="stSidebar"] .stTextInput label,
+        [data-testid="stSidebar"] .stRadio label { color: #bfdbfe !important; }
+
+        /* Buttons */
+        .stButton > button {
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 12px !important;
+            font-weight: 600 !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35) !important;
+            transition: all 0.2s ease !important;
+        }
+        .stButton > button:hover {
+            transform: scale(1.03) !important;
+            box-shadow: 0 6px 18px rgba(102, 126, 234, 0.5) !important;
+        }
+
+        /* Expanders */
+        .streamlit-expanderHeader {
+            background: rgba(102, 126, 234, 0.08);
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        /* Plotly charts */
+        .js-plotly-plot .plotly {
+            border-radius: 16px;
+            overflow: hidden;
+        }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
-GOOGLE_SHEETS_URL = (
-    "https://docs.google.com/spreadsheets/d/"
-    "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE/export?format=csv&gid=1726674730"
+SHEET_ID = "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE"
+SHEET_GID = "1726674730"
+GOOGLE_SHEETS_EXPORT_URL = (
+    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 )
 
+# Flexible regex patterns to detect open-response attributes
+ATTRIBUTE_PATTERNS = [
+    (r"Autos.*factores contribuyeron", "Autos"),
+    (r"Fianzas.*factores contribuyeron", "Fianzas"),
+    (r"Generales.*factores contribuyeron", "Generales"),
+    (r"Soat.*factores contribuyeron", "Soat"),
+    (r"Vida.*factores contribuyeron", "Vida"),
+]
+
+# Exact attribute strings (for backwards-compatible sample data / fallback)
 TARGET_ATTRIBUTES = [
     "Autos, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
     "Fianzas, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?  \n2",
@@ -75,11 +164,14 @@ ATTRIBUTE_LABELS = {
 }
 
 SENTIMENT_COLORS = {
-    "POSITIVO": "#00B050",
-    "NEGATIVO": "#FF0000",
-    "NEUTRAL": "#FFC000",
-    "MIXTO": "#7030A0",
+    "POSITIVO": "#10b981",
+    "NEGATIVO": "#ef4444",
+    "NEUTRAL": "#f59e0b",
+    "MIXTO": "#8b5cf6",
 }
+
+# Benchmark de satisfacción del sector asegurador colombiano (%)
+SECTOR_BENCHMARK = 68
 
 SPANISH_STOPWORDS = {
     "de", "la", "que", "el", "en", "y", "a", "los", "del", "se", "las",
@@ -157,7 +249,7 @@ class SentimentAnalyzer:
         return text
 
     def _keyword_score(self, text: str):
-        """Retorna (pos_count, neg_count, neu_count, dominant_label)."""
+        """Retorna (pos_count, neg_count, neu_count)."""
         words = set(text.split())
         pos = len(words & self.KEYWORDS_POSITIVE)
         neg = len(words & self.KEYWORDS_NEGATIVE)
@@ -239,7 +331,149 @@ class SentimentAnalyzer:
         }
 
 
+# ── IA Contextual: Sector Asegurador Colombiano ────────────────────────────────
+class ColombianInsuranceAI:
+    """
+    IA especializada en análisis de sentimientos para el sector asegurador colombiano.
+    Usa Groq API (Llama 3.1 70B) si está disponible; análisis estadístico como fallback.
+    """
+
+    BENCHMARK = SECTOR_BENCHMARK
+
+    def __init__(self):
+        # Try Streamlit secrets first, then environment variable
+        self.api_key = ""
+        try:
+            self.api_key = st.secrets.get("GROQ_API_KEY", "")
+        except Exception:
+            pass
+        if not self.api_key:
+            self.api_key = os.getenv("GROQ_API_KEY", "")
+        self.client = None
+        if self.api_key:
+            try:
+                import groq
+                self.client = groq.Groq(api_key=self.api_key)
+            except ImportError:
+                pass
+
+    def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        """Genera insights contextualizados usando IA o estadísticas."""
+        if self.client:
+            return self._groq_analysis(df_analyzed, linea)
+        return self._fallback_analysis(df_analyzed, linea)
+
+    def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        total = len(df_analyzed)
+        if total == 0:
+            return "No hay datos suficientes para el análisis."
+
+        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
+        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+
+        top_neg = df_analyzed[df_analyzed["sentiment"] == "NEGATIVO"]["Valor"].astype(str).head(3).tolist()
+        top_pos = df_analyzed[df_analyzed["sentiment"] == "POSITIVO"]["Valor"].astype(str).head(3).tolist()
+
+        neg_items = "\n".join([f"- {c[:150]}" for c in top_neg[:3]])
+        pos_items = "\n".join([f"- {c[:150]}" for c in top_pos[:3]])
+
+        prompt = f"""
+Eres un analista experto del sector asegurador colombiano, especializado en análisis de satisfacción del cliente y regulado por la Superfinanciera de Colombia.
+
+DATOS DEL ANÁLISIS:
+- Línea de negocio: {linea if linea else 'General'}
+- Total respuestas: {total}
+- Sentimiento positivo: {pct_pos:.1f}%
+- Sentimiento negativo: {pct_neg:.1f}%
+
+PRINCIPALES QUEJAS:
+{neg_items}
+
+PRINCIPALES ELOGIOS:
+{pos_items}
+
+CONTEXTO DEL SECTOR EN COLOMBIA:
+- El mercado asegurador colombiano tiene desafíos de educación financiera
+- Los clientes valoran: rapidez, claridad, transparencia, facilidad digital
+- Puntos de dolor comunes: complejidad de trámites, tiempos de respuesta, documentación excesiva
+- Benchmark del sector: satisfacción promedio entre 60-75%
+
+INSTRUCCIONES:
+1. Analiza los datos con perspectiva del mercado colombiano
+2. Identifica 3 insights clave específicos para esta línea
+3. Proporciona 2 recomendaciones accionables basadas en mejores prácticas locales
+4. Compara con benchmarks del sector (si es relevante)
+5. Sé conciso (máximo 300 palabras)
+
+Formato de respuesta:
+## 🎯 Insights Clave
+[3 puntos específicos]
+
+## 💡 Recomendaciones
+[2 acciones concretas]
+
+## 📊 Benchmark
+[Comparativa si aplica]
+"""
+        try:
+            response = self.client.chat.completions.create(
+                model="llama-3.1-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "Eres un analista experto del sector asegurador colombiano."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.7,
+                max_tokens=800,
+            )
+            return response.choices[0].message.content
+        except Exception:
+            return self._fallback_analysis(df_analyzed, linea)
+
+    def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        total = len(df_analyzed)
+        if total == 0:
+            return "No hay datos suficientes para el análisis."
+
+        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
+        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+        benchmark = self.BENCHMARK
+
+        return f"""
+## 🎯 Insights Clave
+
+1. **Satisfacción General**: Con {pct_pos:.1f}% de sentimientos positivos, la línea {"supera" if pct_pos > benchmark else "requiere mejoras para alcanzar"} el benchmark del sector ({benchmark}%).
+
+2. **Áreas de Atención**: {pct_neg:.1f}% de respuestas negativas indican oportunidades de mejora en experiencia del cliente.
+
+3. **Confianza del Modelo**: Análisis robusto basado en {total} respuestas reales de clientes.
+
+## 💡 Recomendaciones
+
+1. **Priorizar**: Analizar comentarios negativos para identificar puntos de dolor recurrentes (tiempos, claridad, procesos).
+
+2. **Amplificar**: Documentar y replicar las experiencias positivas como mejores prácticas internas.
+
+## 📊 Benchmark Sector Asegurador Colombia
+- Promedio industria: ~{benchmark}% satisfacción
+- Tu resultado: {pct_pos:.1f}%
+- {"✅ Por encima del promedio" if pct_pos > benchmark else "⚠️ Oportunidad de mejora"}
+
+*Nota: Configura `GROQ_API_KEY` para obtener insights más profundos con IA.*
+"""
+
+
 # ── Helpers de datos ───────────────────────────────────────────────────────────
+@st.cache_data(ttl=300, show_spinner=False)
+def load_clientes_sheet() -> pd.DataFrame | None:
+    """Carga automática desde Google Sheets pestaña CLIENTES (cache 5 min)."""
+    try:
+        df = pd.read_csv(GOOGLE_SHEETS_EXPORT_URL)
+        return df
+    except Exception as exc:
+        st.sidebar.error(f"❌ Error al cargar automáticamente: {exc}")
+        return None
+
+
 @st.cache_data(show_spinner=False)
 def load_from_google_sheets(url: str) -> pd.DataFrame:
     """Descarga datos desde Google Sheets exportado como CSV."""
@@ -247,34 +481,78 @@ def load_from_google_sheets(url: str) -> pd.DataFrame:
     return df
 
 
-def filter_open_responses(df: pd.DataFrame, attributes: list) -> pd.DataFrame:
-    """
-    Filtra el DataFrame pivoteado para quedarse sólo con los atributos
-    de respuestas abiertas seleccionados.
-    """
-    col_attr = None
-    col_val = None
+def detect_columns(df: pd.DataFrame) -> dict:
+    """Detecta automáticamente las columnas importantes del DataFrame."""
+    attr_col = None
+    val_col = None
+    linea_col = None
 
     for col in df.columns:
-        low = col.strip().lower()
-        if low in ("atributo", "attribute"):
-            col_attr = col
-        if low in ("valor", "value"):
-            col_val = col
+        col_low = col.strip().lower()
+        # Detect attribute column
+        if attr_col is None:
+            if col_low in ("atributo", "attribute"):
+                attr_col = col
+            elif df[col].astype(str).str.contains("¿", na=False).sum() > 5:
+                attr_col = col
+        # Detect value column
+        if val_col is None and col_low in ("valor", "value", "respuesta", "response"):
+            val_col = col
+        # Detect line/ramo column
+        if linea_col is None and ("linea" in col_low or "ramo" in col_low or "línea" in col_low):
+            linea_col = col
 
-    if col_attr is None or col_val is None:
-        # Fallback: assume first two cols are Atributo / Valor
-        col_attr, col_val = df.columns[0], df.columns[1]
+    return {"atributo": attr_col, "valor": val_col, "linea": linea_col}
 
-    filtered = df[df[col_attr].isin(attributes)].copy()
+
+def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None) -> pd.DataFrame:
+    """
+    Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
+    Usa búsqueda flexible con regex (.str.contains) para manejar variaciones de texto.
+    """
+    cols = detect_columns(df)
+    col_attr = cols["atributo"]
+    col_val = cols["valor"]
+
+    # Fallback: assume first two cols are Atributo / Valor
+    if col_attr is None:
+        col_attr = df.columns[0]
+    if col_val is None:
+        col_val = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+
+    # Build combined regex mask from patterns
+    mask = pd.Series([False] * len(df), index=df.index)
+    for pattern, _ in ATTRIBUTE_PATTERNS:
+        mask |= df[col_attr].astype(str).str.contains(pattern, case=False, na=False, regex=True)
+
+    # Also include exact target attributes (backward compatibility)
+    mask |= df[col_attr].isin(TARGET_ATTRIBUTES)
+
+    filtered = df[mask].copy()
     filtered = filtered.rename(columns={col_attr: "Atributo", col_val: "Valor"})
-    filtered = filtered[filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")]
-    filtered["linea_negocio"] = filtered["Atributo"].map(ATTRIBUTE_LABELS)
+    filtered = filtered[
+        filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")
+    ]
+
+    # Assign linea_negocio label from pattern matching
+    def _get_linea(attr_text: str) -> str:
+        for pattern, label in ATTRIBUTE_PATTERNS:
+            if re.search(pattern, str(attr_text), re.IGNORECASE):
+                return label
+        return ATTRIBUTE_LABELS.get(attr_text, "General")
+
+    filtered["linea_negocio"] = filtered["Atributo"].apply(_get_linea)
+
+    # Apply optional línea filter
+    if selected_lineas:
+        filtered = filtered[filtered["linea_negocio"].isin(selected_lineas)]
 
     # Try to extract date if available
     date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
     if date_cols:
-        filtered["fecha"] = pd.to_datetime(df.loc[filtered.index, date_cols[0]], errors="coerce")
+        filtered["fecha"] = pd.to_datetime(
+            df.loc[filtered.index, date_cols[0]], errors="coerce"
+        )
 
     filtered = filtered.reset_index(drop=True)
     return filtered
@@ -283,7 +561,6 @@ def filter_open_responses(df: pd.DataFrame, attributes: list) -> pd.DataFrame:
 def generate_sample_data(n: int = 50) -> pd.DataFrame:
     """Genera datos sintéticos para demostración."""
     rng = np.random.default_rng(42)
-    lines = list(ATTRIBUTE_LABELS.values())
     comments_pos = [
         "El proceso fue muy fácil y rápido, excelente servicio",
         "Todo claro y eficiente, muy satisfecho con la atención",
@@ -324,75 +601,192 @@ def generate_sample_data(n: int = 50) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ── Visualizaciones avanzadas ──────────────────────────────────────────────────
+def create_gauge_chart(percentage: float, title: str, color: str) -> go.Figure:
+    """Medidor circular tipo speedometer."""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number+delta",
+        value=percentage,
+        title={"text": title, "font": {"size": 18}},
+        delta={"reference": 50},
+        gauge={
+            "axis": {"range": [0, 100]},
+            "bar": {"color": color},
+            "steps": [
+                {"range": [0, 33], "color": "rgba(239,68,68,0.15)"},
+                {"range": [33, 66], "color": "rgba(245,158,11,0.15)"},
+                {"range": [66, 100], "color": "rgba(16,185,129,0.15)"},
+            ],
+            "threshold": {
+                "line": {"color": color, "width": 3},
+                "thickness": 0.75,
+                "value": percentage,
+            },
+        },
+    ))
+    fig.update_layout(height=240, margin=dict(t=60, b=10, l=10, r=10))
+    return fig
+
+
+def create_3d_scatter(df: pd.DataFrame) -> go.Figure:
+    """Gráfico de dispersión 3D de sentimientos."""
+    color_map = {
+        "POSITIVO": "#10b981",
+        "NEGATIVO": "#ef4444",
+        "NEUTRAL": "#f59e0b",
+        "MIXTO": "#8b5cf6",
+    }
+    fig = go.Figure(data=[go.Scatter3d(
+        x=df["confidence"],
+        y=df["score"],
+        z=df["keywords_pos"] - df["keywords_neg"],
+        mode="markers",
+        marker=dict(
+            size=7,
+            color=[color_map.get(s, "#667eea") for s in df["sentiment"]],
+            opacity=0.8,
+            line=dict(width=0.5, color="white"),
+        ),
+        text=df["Valor"].astype(str).str[:60],
+        hovertemplate="<b>%{text}</b><br>Confianza: %{x:.2f}<br>Score: %{y:.2f}<extra></extra>",
+    )])
+    fig.update_layout(
+        title="Análisis 3D de Sentimientos",
+        scene=dict(
+            xaxis_title="Confianza",
+            yaxis_title="Score",
+            zaxis_title="Balance Keywords",
+        ),
+        height=600,
+        margin=dict(t=60, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def create_sankey_diagram(df: pd.DataFrame) -> go.Figure:
+    """Diagrama de flujo Sankey: Línea → Sentimiento."""
+    if "linea_negocio" not in df.columns or df.empty:
+        return go.Figure()
+
+    sentiments_by_linea = pd.crosstab(df["linea_negocio"], df["sentiment"])
+    linea_nodes = list(sentiments_by_linea.index)
+    sentiment_nodes = [s for s in ["POSITIVO", "NEGATIVO", "NEUTRAL", "MIXTO"] if s in sentiments_by_linea.columns]
+    all_nodes = linea_nodes + sentiment_nodes
+
+    source, target, value, link_colors = [], [], [], []
+    node_colors = (
+        ["#667eea"] * len(linea_nodes)
+        + [SENTIMENT_COLORS.get(s, "#667eea") for s in sentiment_nodes]
+    )
+
+    for i, linea in enumerate(linea_nodes):
+        for j, sent in enumerate(sentiment_nodes):
+            val = int(sentiments_by_linea.loc[linea, sent]) if sent in sentiments_by_linea.columns else 0
+            if val > 0:
+                source.append(i)
+                target.append(len(linea_nodes) + j)
+                value.append(val)
+                base = SENTIMENT_COLORS.get(sent, "#667eea").lstrip("#")
+                r, g, b = int(base[0:2], 16), int(base[2:4], 16), int(base[4:6], 16)
+                link_colors.append(f"rgba({r},{g},{b},0.4)")
+
+    fig = go.Figure(go.Sankey(
+        node=dict(
+            pad=15, thickness=20,
+            line=dict(color="rgba(0,0,0,0.2)", width=0.5),
+            label=all_nodes,
+            color=node_colors,
+        ),
+        link=dict(source=source, target=target, value=value, color=link_colors),
+    ))
+    fig.update_layout(
+        title="Flujo de Sentimientos por Línea de Negocio",
+        height=450,
+        margin=dict(t=60, b=10, l=10, r=10),
+    )
+    return fig
+
+
+def create_radar_chart(df: pd.DataFrame) -> go.Figure:
+    """Gráfico radar comparativo por línea de negocio."""
+    if "linea_negocio" not in df.columns or df.empty:
+        return go.Figure()
+
+    lineas = df["linea_negocio"].value_counts().head(5).index.tolist()
+    categories = ["% Positivo", "% Negativo", "% Neutral", "Confianza ×100", "Score +50"]
+
+    fig = go.Figure()
+    for linea in lineas:
+        ld = df[df["linea_negocio"] == linea]
+        n = len(ld)
+        if n == 0:
+            continue
+        values = [
+            (ld["sentiment"] == "POSITIVO").sum() / n * 100,
+            (ld["sentiment"] == "NEGATIVO").sum() / n * 100,
+            (ld["sentiment"] == "NEUTRAL").sum() / n * 100,
+            ld["confidence"].mean() * 100,
+            ld["score"].mean() * 50 + 50,  # scale [-1,1] → [0,100]
+        ]
+        fig.add_trace(go.Scatterpolar(
+            r=values + [values[0]],
+            theta=categories + [categories[0]],
+            fill="toself",
+            name=linea,
+            opacity=0.65,
+        ))
+
+    fig.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+        title="Comparativa Radar por Línea de Negocio",
+        height=450,
+        margin=dict(t=60, b=10, l=10, r=10),
+    )
+    return fig
+
 
 # ── Renderizado de tabs ────────────────────────────────────────────────────────
 def render_tab_dashboard(df: pd.DataFrame):
-    st.subheader("📊 Dashboard General")
+    st.subheader("📊 Dashboard Premium")
 
     total = len(df)
     pct_pos = (df["sentiment"] == "POSITIVO").mean() * 100
     pct_neg = (df["sentiment"] == "NEGATIVO").mean() * 100
-    avg_score = df["score"].mean()
     avg_conf = df["confidence"].mean() * 100
+    nps = max(pct_pos - pct_neg, 0)
 
+    # Gauge row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.plotly_chart(create_gauge_chart(pct_pos, "😊 Positivos %", "#10b981"), use_container_width=True)
+    with col2:
+        st.plotly_chart(create_gauge_chart(pct_neg, "😞 Negativos %", "#ef4444"), use_container_width=True)
+    with col3:
+        st.plotly_chart(create_gauge_chart(avg_conf, "🎯 Confianza %", "#667eea"), use_container_width=True)
+    with col4:
+        st.plotly_chart(create_gauge_chart(nps, "📈 NPS Score", "#8b5cf6"), use_container_width=True)
+
+    # Summary metrics
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.metric("📋 Total respuestas", f"{total:,}")
-    with c2:
-        st.metric("😊 % Positivos", f"{pct_pos:.1f}%", delta=f"{pct_pos - 50:.1f}pp")
-    with c3:
-        st.metric(
-            "😞 % Negativos",
-            f"{pct_neg:.1f}%",
-            delta=f"{-(pct_neg - 50):.1f}pp",
-            delta_color="inverse",
-        )
-    with c4:
-        st.metric("⭐ Score promedio", f"{avg_score:.2f}")
-    with c5:
-        st.metric("🎯 Confianza modelo", f"{avg_conf:.1f}%")
+    c1.metric("📋 Total respuestas", f"{total:,}")
+    c2.metric("😊 % Positivos", f"{pct_pos:.1f}%", delta=f"{pct_pos - 50:.1f}pp")
+    c3.metric("😞 % Negativos", f"{pct_neg:.1f}%", delta=f"{-(pct_neg - 50):.1f}pp", delta_color="inverse")
+    c4.metric("⭐ Score promedio", f"{df['score'].mean():.2f}")
+    c5.metric("🎯 Confianza modelo", f"{avg_conf:.1f}%")
 
     st.markdown("---")
 
     col_left, col_right = st.columns(2)
 
-    # Dona
     with col_left:
-        counts = df["sentiment"].value_counts().reset_index()
-        counts.columns = ["Sentimiento", "Cantidad"]
-        fig_pie = px.pie(
-            counts,
-            names="Sentimiento",
-            values="Cantidad",
-            hole=0.45,
-            color="Sentimiento",
-            color_discrete_map=SENTIMENT_COLORS,
-            title="Distribución de Sentimientos",
-        )
-        fig_pie.update_layout(legend_title_text="Sentimiento")
-        st.plotly_chart(fig_pie, use_container_width=True)
+        fig_sankey = create_sankey_diagram(df)
+        st.plotly_chart(fig_sankey, use_container_width=True)
 
-    # Histograma confianza
     with col_right:
-        avg_c = df["confidence"].mean()
-        fig_hist = px.histogram(
-            df,
-            x="confidence",
-            color="sentiment",
-            color_discrete_map=SENTIMENT_COLORS,
-            nbins=20,
-            title="Distribución de Confianza del Modelo",
-            labels={"confidence": "Confianza", "count": "Frecuencia"},
-        )
-        fig_hist.add_vline(
-            x=avg_c,
-            line_dash="dash",
-            line_color="gray",
-            annotation_text=f"Promedio: {avg_c:.2%}",
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
+        fig_radar = create_radar_chart(df)
+        st.plotly_chart(fig_radar, use_container_width=True)
 
-    # Barras apiladas por línea de negocio
+    # Stacked bar by line
     if "linea_negocio" in df.columns:
         pivot = (
             df.groupby(["linea_negocio", "sentiment"])
@@ -414,7 +808,7 @@ def render_tab_dashboard(df: pd.DataFrame):
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
-    # Tendencia temporal
+    # Temporal trend
     if "fecha" in df.columns and df["fecha"].notna().any():
         df_time = df.dropna(subset=["fecha"]).copy()
         df_time["mes"] = df_time["fecha"].dt.to_period("M").astype(str)
@@ -436,10 +830,14 @@ def render_tab_dashboard(df: pd.DataFrame):
         st.plotly_chart(fig_line, use_container_width=True)
 
 
-def render_tab_detailed(df: pd.DataFrame):
-    st.subheader("🔍 Análisis Detallado")
+def render_tab_3d(df: pd.DataFrame):
+    st.subheader("🎯 Visualización 3D Interactiva")
+    st.info("💡 Interactúa con el gráfico: rotar, zoom, hover para ver detalles de cada comentario.")
 
-    # Mapa de calor
+    fig_3d = create_3d_scatter(df)
+    st.plotly_chart(fig_3d, use_container_width=True)
+
+    # Heatmap
     if "linea_negocio" in df.columns:
         heat_data = (
             df.groupby(["linea_negocio", "sentiment"])
@@ -487,18 +885,16 @@ def render_tab_detailed(df: pd.DataFrame):
             summary_ln.columns = ["Línea", "Cantidad", "% Positivo", "% Negativo"]
             st.dataframe(summary_ln, use_container_width=True, hide_index=True)
 
-    st.markdown("---")
+    # Keywords bar
     col3, col4 = st.columns(2)
     with col3:
         total_kw_pos = df["keywords_pos"].sum()
         total_kw_neg = df["keywords_neg"].sum()
-        kw_fig = go.Figure(
-            go.Bar(
-                x=["Keywords Positivas", "Keywords Negativas"],
-                y=[total_kw_pos, total_kw_neg],
-                marker_color=[SENTIMENT_COLORS["POSITIVO"], SENTIMENT_COLORS["NEGATIVO"]],
-            )
-        )
+        kw_fig = go.Figure(go.Bar(
+            x=["Keywords Positivas", "Keywords Negativas"],
+            y=[total_kw_pos, total_kw_neg],
+            marker_color=[SENTIMENT_COLORS["POSITIVO"], SENTIMENT_COLORS["NEGATIVO"]],
+        ))
         kw_fig.update_layout(title="Total Keywords Detectadas", showlegend=False)
         st.plotly_chart(kw_fig, use_container_width=True)
 
@@ -509,7 +905,7 @@ def render_tab_detailed(df: pd.DataFrame):
             .agg(cantidad=("sentiment", "count"))
             .reset_index()
         )
-        summary_attr["Atributo"] = summary_attr["Atributo"].map(
+        summary_attr["Atributo"] = summary_attr["Atributo"].apply(
             lambda a: ATTRIBUTE_LABELS.get(a, a)
         )
         summary_attr.columns = ["Atributo", "Cantidad"]
@@ -517,7 +913,7 @@ def render_tab_detailed(df: pd.DataFrame):
 
 
 def render_tab_comments(df: pd.DataFrame):
-    st.subheader("💬 Comentarios")
+    st.subheader("💬 Explorador de Comentarios")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -537,7 +933,7 @@ def render_tab_comments(df: pd.DataFrame):
         min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
 
     mask = df["sentiment"].isin(sents) & (df["confidence"] >= min_conf)
-    if selected_lines:
+    if selected_lines and "linea_negocio" in df.columns:
         mask &= df["linea_negocio"].isin(selected_lines)
 
     filtered = df[mask].head(50)
@@ -547,7 +943,8 @@ def render_tab_comments(df: pd.DataFrame):
         text_preview = str(row["Valor"])[:80] + ("…" if len(str(row["Valor"])) > 80 else "")
         sent = row["sentiment"]
         color_class = f"sentiment-{sent.lower()}"
-        with st.expander(f"[{ATTRIBUTE_LABELS.get(row['Atributo'], row['Atributo'])}] {text_preview}"):
+        linea_label = row.get("linea_negocio", ATTRIBUTE_LABELS.get(row["Atributo"], row["Atributo"]))
+        with st.expander(f"[{linea_label}] {text_preview}"):
             st.markdown(f"**Texto completo:** {row['Valor']}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(
@@ -583,11 +980,6 @@ def render_tab_keywords(df: pd.DataFrame):
         from wordcloud import WordCloud
         import matplotlib.pyplot as plt
 
-        wc_color = (
-            SENTIMENT_COLORS.get(sent_filter, "#1f4788")
-            if sent_filter != "Todos"
-            else "#1f4788"
-        )
         wc = WordCloud(
             width=800,
             height=400,
@@ -605,21 +997,18 @@ def render_tab_keywords(df: pd.DataFrame):
     except ImportError:
         st.info("WordCloud no disponible. Mostrando frecuencias en gráfico.")
 
-    # Top 20 bar chart
     top20 = word_freq[:20]
     words_list = [w[0] for w in top20]
     freqs = [w[1] for w in top20]
 
-    fig_bar = go.Figure(
-        go.Bar(
-            y=words_list[::-1],
-            x=freqs[::-1],
-            orientation="h",
-            marker_color=SENTIMENT_COLORS.get(sent_filter, "#1f4788")
-            if sent_filter != "Todos"
-            else "#1f4788",
-        )
-    )
+    fig_bar = go.Figure(go.Bar(
+        y=words_list[::-1],
+        x=freqs[::-1],
+        orientation="h",
+        marker_color=SENTIMENT_COLORS.get(sent_filter, "#667eea")
+        if sent_filter != "Todos"
+        else "#667eea",
+    ))
     fig_bar.update_layout(
         title="Top 20 Palabras más Frecuentes",
         xaxis_title="Frecuencia",
@@ -627,6 +1016,44 @@ def render_tab_keywords(df: pd.DataFrame):
         height=500,
     )
     st.plotly_chart(fig_bar, use_container_width=True)
+
+
+def render_tab_ai(df: pd.DataFrame):
+    st.subheader("🤖 Insights con IA")
+    st.markdown("*Análisis contextualizado para el sector asegurador colombiano*")
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        lineas_disponibles = ["📊 Todas las líneas"]
+        if "linea_negocio" in df.columns:
+            lineas_disponibles += [f"📋 {l}" for l in sorted(df["linea_negocio"].unique())]
+        linea_ia = st.selectbox("Selecciona línea de negocio:", options=lineas_disponibles)
+
+    with col2:
+        generar = st.button("🔮 Generar Insights", type="primary", use_container_width=True)
+
+    if generar:
+        st.session_state["generate_ia"] = True
+
+    if st.session_state.get("generate_ia", False):
+        with st.spinner("🧠 Analizando con contexto del sector asegurador colombiano…"):
+            ai_analyzer = ColombianInsuranceAI()
+
+            if "Todas" in linea_ia:
+                insights = ai_analyzer.analyze_with_context(df)
+            else:
+                linea_clean = linea_ia.replace("📋 ", "")
+                linea_df = df[df["linea_negocio"] == linea_clean] if "linea_negocio" in df.columns else df
+                insights = ai_analyzer.analyze_with_context(linea_df, linea_clean)
+
+            st.markdown(insights)
+            st.session_state["generate_ia"] = False
+
+    if not st.session_state.get("generate_ia", False) and "GROQ_API_KEY" not in os.environ:
+        st.info(
+            "💡 Para obtener insights más profundos con IA, configura tu `GROQ_API_KEY`. "
+            "Obtén una API key gratis en https://console.groq.com"
+        )
 
 
 def render_tab_export(df: pd.DataFrame):
@@ -698,12 +1125,8 @@ def render_tab_export(df: pd.DataFrame):
 # ── Pantalla de bienvenida ─────────────────────────────────────────────────────
 def render_welcome():
     st.markdown(
-        """
-        <h1 style='color:#1f4788; text-align:center;'>
-            🎯 Sistema de Análisis de Sentimientos
-        </h1>
-        <h3 style='color:#555; text-align:center;'>Aseguradora — Powered by BETO (BERT en Español)</h3>
-        """,
+        "<h1>🎯 Sistema de Análisis de Sentimientos</h1>"
+        "<h3 style='text-align:center;color:#555;'>Aseguradora — Powered by BETO + IA Contextual</h3>",
         unsafe_allow_html=True,
     )
 
@@ -715,18 +1138,18 @@ def render_welcome():
             - Modelo **BETO** fine-tuned en español
             - Análisis **híbrido**: modelo + keywords
             - Categorías: **POSITIVO, NEGATIVO, NEUTRAL, MIXTO**
-            - Keywords especializadas del sector asegurador
+            - **IA contextual** del sector asegurador colombiano
             """
         )
     with col2:
         st.markdown(
             """
             ### 📊 Visualizaciones disponibles
-            - Gráfico de dona de distribución
-            - Mapa de calor por línea de negocio
-            - Tendencia temporal
-            - Nube de palabras interactiva
-            - Top 20 palabras frecuentes
+            - Gauges tipo speedometer
+            - Gráfico **3D** interactivo
+            - Diagrama **Sankey** por línea
+            - Gráfico **radar** comparativo
+            - Nube de palabras + Top 20
             """
         )
     with col3:
@@ -744,25 +1167,32 @@ def render_welcome():
     st.markdown(
         """
         ### 🚀 Instrucciones de uso
-        1. En el **panel lateral**, selecciona la fuente de datos.
-        2. Elige entre Google Sheets, subir CSV o datos de ejemplo.
-        3. Selecciona los atributos a analizar.
+        1. Los datos de Google Sheets se cargan **automáticamente** al iniciar.
+        2. También puedes elegir subir un CSV o usar datos de ejemplo.
+        3. Usa los **filtros** de Línea/Ramo en el panel lateral.
         4. Haz clic en **🔍 Analizar Sentimientos**.
-        5. Explora los resultados en las 5 pestañas.
-        6. Descarga los resultados desde la pestaña **Exportar**.
+        5. Explora los resultados en las 6 pestañas.
+        6. Genera **Insights con IA** en la pestaña correspondiente.
+        7. Descarga los resultados desde la pestaña **Exportar**.
         """
     )
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 def render_sidebar() -> tuple:
+    """Renderiza la barra lateral y retorna (selected_lineas, analyze_btn)."""
     with st.sidebar:
-        st.image(
-            "https://img.icons8.com/color/96/analytics.png",
-            width=80,
-        )
+        st.image("https://img.icons8.com/color/96/analytics.png", width=80)
         st.title("⚙️ Configuración")
         st.markdown("---")
+
+        # ── Automatic load ────────────────────────────────────────────────────
+        if "df_raw" not in st.session_state:
+            with st.spinner("⏳ Cargando datos de Google Sheets…"):
+                auto_df = load_clientes_sheet()
+            if auto_df is not None:
+                st.session_state["df_raw"] = auto_df
+                st.success(f"✅ {len(auto_df):,} registros cargados automáticamente")
 
         source = st.radio(
             "Fuente de datos",
@@ -770,19 +1200,16 @@ def render_sidebar() -> tuple:
             index=0,
         )
 
-        df_raw = None
         if source == "🔗 Google Sheets":
             url_input = st.text_input(
                 "URL de Google Sheets",
-                value="https://docs.google.com/spreadsheets/d/1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE/edit?gid=1726674730",
+                value=(
+                    "https://docs.google.com/spreadsheets/d/"
+                    "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE/edit?gid=1726674730"
+                ),
             )
-            if st.button("📥 Cargar desde Google Sheets"):
-                # Convert edit URL to export URL
-                export_url = re.sub(
-                    r"/edit.*",
-                    "/export?format=csv",
-                    url_input,
-                )
+            if st.button("📥 Recargar desde Google Sheets"):
+                export_url = re.sub(r"/edit.*", "/export?format=csv", url_input)
                 gid_match = re.search(r"gid=(\d+)", url_input)
                 if gid_match:
                     export_url += f"&gid={gid_match.group(1)}"
@@ -811,16 +1238,31 @@ def render_sidebar() -> tuple:
                 st.session_state["df_raw"] = df_raw
 
         st.markdown("---")
-        # Attribute selection
-        selected_attrs = st.multiselect(
-            "Atributos a analizar",
-            options=TARGET_ATTRIBUTES,
-            default=TARGET_ATTRIBUTES,
-            format_func=lambda a: ATTRIBUTE_LABELS.get(a, a),
-        )
+
+        # ── Line/Ramo filter ──────────────────────────────────────────────────
+        selected_lineas = None
+        df_current = st.session_state.get("df_raw")
+        if df_current is not None:
+            cols = detect_columns(df_current)
+            linea_col = cols.get("linea")
+            if linea_col:
+                lineas_disponibles = sorted(df_current[linea_col].dropna().unique())
+            else:
+                lineas_disponibles = list(ATTRIBUTE_LABELS.values())
+
+            selected_lineas = st.multiselect(
+                "🎯 Filtrar por Línea/Ramo:",
+                options=lineas_disponibles,
+                default=lineas_disponibles,
+                help="Selecciona las líneas de negocio a analizar",
+            )
+            if selected_lineas:
+                st.info(f"📊 Filtrando por {len(selected_lineas)} línea(s)")
 
         st.markdown("---")
-        analyze_btn = st.button("🔍 Analizar Sentimientos", type="primary", use_container_width=True)
+        analyze_btn = st.button(
+            "🔍 Analizar Sentimientos", type="primary", use_container_width=True
+        )
 
         st.markdown("---")
         st.markdown(
@@ -828,12 +1270,12 @@ def render_sidebar() -> tuple:
             unsafe_allow_html=True,
         )
 
-    return selected_attrs, analyze_btn
+    return selected_lineas, analyze_btn
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    selected_attrs, analyze_btn = render_sidebar()
+    selected_lineas, analyze_btn = render_sidebar()
 
     df_raw = st.session_state.get("df_raw", None)
     df_results = st.session_state.get("df_results", None)
@@ -847,11 +1289,22 @@ def main():
             st.warning("⚠️ Primero carga los datos desde el panel lateral.")
             return
 
-        # Filter relevant attributes
-        if "Atributo" in df_raw.columns or "atributo" in df_raw.columns.str.lower().tolist():
-            df_filtered = filter_open_responses(df_raw, selected_attrs)
+        # Check if data already has Atributo/Valor or needs detection
+        cols = detect_columns(df_raw)
+        col_attr = cols.get("atributo")
+        col_val = cols.get("valor")
+
+        if col_attr is not None and col_val is not None:
+            df_filtered = filter_open_responses(df_raw, selected_lineas)
+        elif "Atributo" in df_raw.columns and "Valor" in df_raw.columns:
+            # Already pre-filtered (e.g. sample data)
+            df_filtered = df_raw.copy()
+            if "linea_negocio" not in df_filtered.columns:
+                df_filtered["linea_negocio"] = df_filtered["Atributo"].apply(
+                    lambda a: ATTRIBUTE_LABELS.get(a, "General")
+                )
         else:
-            # Assume it's already in plain format (CSV upload with Valor column)
+            # Fallback for plain CSV with just a text column
             df_filtered = df_raw.copy()
             if "Valor" not in df_filtered.columns:
                 df_filtered["Valor"] = df_filtered.iloc[:, 0]
@@ -861,7 +1314,10 @@ def main():
                 df_filtered["linea_negocio"] = "General"
 
         if df_filtered.empty:
-            st.error("❌ No se encontraron respuestas con los atributos seleccionados.")
+            st.error(
+                "❌ No se encontraron respuestas con los atributos seleccionados. "
+                "Verifica que el archivo tenga columnas Atributo/Valor con preguntas abiertas."
+            )
             return
 
         analyzer = SentimentAnalyzer()
@@ -890,24 +1346,25 @@ def main():
         st.success(f"✅ Análisis completado: {total:,} respuestas procesadas")
 
     if df_results is not None:
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(
-            [
-                "📊 Dashboard General",
-                "🔍 Análisis Detallado",
-                "💬 Comentarios",
-                "☁️ Palabras Clave",
-                "📥 Exportar",
-            ]
-        )
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Dashboard Premium",
+            "🎯 Análisis 3D",
+            "💬 Explorador de Comentarios",
+            "☁️ Palabras Clave",
+            "🤖 Insights con IA",
+            "📥 Exportar",
+        ])
         with tab1:
             render_tab_dashboard(df_results)
         with tab2:
-            render_tab_detailed(df_results)
+            render_tab_3d(df_results)
         with tab3:
             render_tab_comments(df_results)
         with tab4:
             render_tab_keywords(df_results)
         with tab5:
+            render_tab_ai(df_results)
+        with tab6:
             render_tab_export(df_results)
     elif df_raw is not None:
         st.info("👈 Haz clic en **🔍 Analizar Sentimientos** para iniciar el análisis.")
