@@ -484,17 +484,22 @@ class HuggingFaceAnalyzer:
     API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-3B-Instruct"
 
     def __init__(self):
-        self.api_token = ""
-        try:
-            self.api_token = st.secrets.get("HF_API_TOKEN", "")
-        except Exception:
-            pass
-        if not self.api_token:
-            self.api_token = os.getenv("HF_API_TOKEN", "")
+    pass  # No almacenamos el token en __init__
 
-    @property
-    def available(self) -> bool:
-        return bool(self.api_token)
+@property
+def api_token(self) -> str:
+    """Lee el token dinámicamente cada vez."""
+    try:
+        token = st.secrets.get("HF_API_TOKEN", "")
+        if token:
+            return token
+    except Exception:
+        pass
+    return os.getenv("HF_API_TOKEN", "")
+
+@property
+def available(self) -> bool:
+    return bool(self.api_token)
 
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Genera insights usando HuggingFace o estadísticas como fallback."""
