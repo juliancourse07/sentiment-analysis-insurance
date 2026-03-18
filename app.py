@@ -532,6 +532,10 @@ class HuggingFaceAnalyzer:
             response = requests.post(
                 self.API_URL, headers=headers, json=payload, timeout=30
             )
+            # DEBUG: Ver código de respuesta
+            st.write(f"🔍 DEBUG HTTP: Status code = {response.status_code}")
+            st.write(f"🔍 DEBUG HTTP: Response = {response.text[:200]}")
+
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list) and data:
