@@ -157,6 +157,15 @@ TARGET_ATTRIBUTES = [
     "Vida, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?  \n4",
 ]
 
+# Normalized exact texts for the "Atributo original" column (strip/isin matching)
+TARGET_ATRIBUTO_ORIGINAL = [
+    "Autos, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+    "Fianzas, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+    "Generales, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+    "Soat, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+    "Vida, ¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+]
+
 ATTRIBUTE_LABELS = {
     TARGET_ATTRIBUTES[0]: "Autos",
     TARGET_ATTRIBUTES[1]: "Fianzas",
@@ -584,9 +593,13 @@ def detect_columns(df: pd.DataFrame) -> dict:
     attr_col = None
     val_col = None
     linea_col = None
+    atributo_original_col = None
 
     for col in df.columns:
         col_low = col.strip().lower()
+        # Detect "Atributo original" column (priority check)
+        if atributo_original_col is None and col_low in ("atributo original", "atributo_original"):
+            atributo_original_col = col
         # Detect attribute column
         if attr_col is None:
             if col_low in ("atributo", "attribute"):
@@ -600,7 +613,12 @@ def detect_columns(df: pd.DataFrame) -> dict:
         if linea_col is None and ("linea" in col_low or "ramo" in col_low or "línea" in col_low):
             linea_col = col
 
-    return {"atributo": attr_col, "valor": val_col, "linea": linea_col}
+    return {
+        "atributo": attr_col,
+        "valor": val_col,
+        "linea": linea_col,
+        "atributo_original": atributo_original_col,
+    }
 
 
 def _normalize_attribute_text(series: pd.Series) -> pd.Series:
@@ -620,10 +638,86 @@ def _normalize_attribute_text(series: pd.Series) -> pd.Series:
 def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None) -> pd.DataFrame:
     """
     Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
-    Usa búsqueda flexible con regex (.str.contains) para manejar variaciones de texto,
-    incluyendo saltos de línea, espacios múltiples y números al final.
+
+    Prioridad 1: si existe una columna 'Atributo original', filtra por los 5 textos exactos
+    en TARGET_ATRIBUTO_ORIGINAL, mapea columnas Valor/linea_negocio/Sucursal y reporta al usuario.
+
+    Prioridad 2 (fallback): búsqueda flexible con regex sobre la columna de atributo detectada.
     """
     cols = detect_columns(df)
+    atributo_original_col = cols.get("atributo_original")
+
+    # ── Priority path: "Atributo original" column ─────────────────────────────
+    if atributo_original_col is not None:
+        # Build exact-match mask (normalized); fillna('') prevents "nan" false positives
+        mask = df[atributo_original_col].fillna("").astype(str).str.strip().isin(TARGET_ATRIBUTO_ORIGINAL)
+
+        # Determine the value column: prefer literal 'Valor', else use detected fallback
+        col_val = None
+        if "Valor" in df.columns:
+            col_val = "Valor"
+        else:
+            col_val = cols.get("valor")
+            if col_val is None:
+                col_val = df.columns[1] if len(df.columns) > 1 else df.columns[0]
+
+        filtered = df[mask].copy()
+
+        # Rename to canonical names (only rename if the source col != destination)
+        rename_map = {}
+        if atributo_original_col != "Atributo":
+            rename_map[atributo_original_col] = "Atributo"
+        if col_val != "Valor":
+            rename_map[col_val] = "Valor"
+        if rename_map:
+            filtered = filtered.rename(columns=rename_map)
+
+        # Drop rows with empty Valor
+        filtered = filtered[
+            filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")
+        ]
+
+        # Map linea_negocio
+        linea_col = cols.get("linea")
+        if linea_col and linea_col in filtered.columns:
+            filtered["linea_negocio"] = filtered[linea_col].fillna("General").astype(str)
+        else:
+            # Fallback: derive line from attribute text using patterns
+            def _get_linea_ao(attr_text: str) -> str:
+                for pattern, label in ATTRIBUTE_PATTERNS:
+                    if re.search(pattern, str(attr_text), re.IGNORECASE):
+                        return label
+                return ATTRIBUTE_LABELS.get(attr_text, "General")
+
+            filtered["linea_negocio"] = filtered["Atributo"].apply(_get_linea_ao)
+
+        # Detect and include sucursal column
+        suc_candidates = ["Suc", "Sucursal", "suc", "sucursal"]
+        suc_col = next((c for c in suc_candidates if c in df.columns), None)
+        if suc_col:
+            # Access from the original df using filtered indices since suc_col may not be in filtered after rename
+            filtered["Sucursal"] = df.loc[filtered.index, suc_col].astype(str)
+
+        # Apply optional línea filter
+        if selected_lineas:
+            filtered = filtered[filtered["linea_negocio"].isin(selected_lineas)]
+
+        # Try to extract date
+        date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
+        if date_cols:
+            filtered["fecha"] = pd.to_datetime(
+                df.loc[filtered.index, date_cols[0]], errors="coerce"
+            )
+
+        filtered = filtered.reset_index(drop=True)
+
+        st.info(
+            f"✅ Filtrado por 'Atributo original' (columna: **{atributo_original_col}**). "
+            f"Se encontraron **{len(filtered):,}** respuestas abiertas."
+        )
+        return filtered
+
+    # ── Fallback path: flexible regex on detected attribute column ─────────────
     col_attr = cols["atributo"]
     col_val = cols["valor"]
 
@@ -924,6 +1018,64 @@ def render_tab_dashboard(df: pd.DataFrame):
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
+        # Breakdown table: top líneas with % Positivo / % Negativo / % Neutral
+        st.markdown("#### 📋 Desglose % por Principales Líneas de Negocio")
+        top_lineas = df["linea_negocio"].value_counts().head(10).index.tolist()
+        linea_rows = []
+        for ln in top_lineas:
+            ld = df[df["linea_negocio"] == ln]
+            n = len(ld)
+            linea_rows.append({
+                "Línea": ln,
+                "Respuestas": n,
+                "% Positivo": round((ld["sentiment"] == "POSITIVO").mean() * 100, 1),
+                "% Negativo": round((ld["sentiment"] == "NEGATIVO").mean() * 100, 1),
+                "% Neutral": round((ld["sentiment"] == "NEUTRAL").mean() * 100, 1),
+            })
+        st.dataframe(pd.DataFrame(linea_rows), use_container_width=True, hide_index=True)
+
+    # Sucursal breakdown (only shown when "Sucursal" column is present)
+    if "Sucursal" in df.columns:
+        st.markdown("---")
+        st.markdown("#### 🏢 Desglose % por Principales Sucursales")
+
+        # Stacked bar by sucursal
+        pivot_suc = (
+            df.groupby(["Sucursal", "sentiment"])
+            .size()
+            .reset_index(name="n")
+        )
+        pivot_suc["pct"] = pivot_suc.groupby("Sucursal")["n"].transform(
+            lambda x: x / x.sum() * 100
+        )
+        top_sucs = df["Sucursal"].value_counts().head(10).index.tolist()
+        pivot_suc_top = pivot_suc[pivot_suc["Sucursal"].isin(top_sucs)]
+
+        fig_bar_suc = px.bar(
+            pivot_suc_top,
+            x="Sucursal",
+            y="pct",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS,
+            barmode="stack",
+            title="Sentimientos por Sucursal (%)",
+            labels={"Sucursal": "Sucursal", "pct": "Porcentaje (%)"},
+        )
+        st.plotly_chart(fig_bar_suc, use_container_width=True)
+
+        suc_rows = []
+        for suc in top_sucs:
+            sd = df[df["Sucursal"] == suc]
+            n = len(sd)
+            suc_rows.append({
+                "Sucursal": suc,
+                "Respuestas": n,
+                "% Positivo": round((sd["sentiment"] == "POSITIVO").mean() * 100, 1),
+                "% Negativo": round((sd["sentiment"] == "NEGATIVO").mean() * 100, 1),
+                "% Neutral": round((sd["sentiment"] == "NEUTRAL").mean() * 100, 1),
+            })
+        st.dataframe(pd.DataFrame(suc_rows), use_container_width=True, hide_index=True)
+
     # Temporal trend
     if "fecha" in df.columns and df["fecha"].notna().any():
         df_time = df.dropna(subset=["fecha"]).copy()
@@ -1031,6 +1183,8 @@ def render_tab_3d(df: pd.DataFrame):
 def render_tab_comments(df: pd.DataFrame):
     st.subheader("💬 Explorador de Comentarios")
 
+    has_sucursal = "Sucursal" in df.columns
+
     col1, col2, col3 = st.columns(3)
     with col1:
         sents = st.multiselect(
@@ -1055,12 +1209,38 @@ def render_tab_comments(df: pd.DataFrame):
     filtered = df[mask].head(50)
     st.markdown(f"**Mostrando {len(filtered)} de {mask.sum()} comentarios filtrados**")
 
+    # Aggregated breakdown by línea/sucursal (shown when Sucursal column exists)
+    if has_sucursal and not filtered.empty:
+        with st.expander("📊 Desglose agregado por Línea y Sucursal", expanded=False):
+            grp_cols = ["linea_negocio", "Sucursal"] if "linea_negocio" in filtered.columns else ["Sucursal"]
+            agg_rows = []
+            for keys, grp in filtered.groupby(grp_cols):
+                # pandas returns a scalar for single-column groupby keys, tuple for multi-column
+                if not isinstance(keys, tuple):
+                    keys = (keys,)
+                n = len(grp)
+                row_dict = dict(zip(grp_cols, keys))
+                row_dict["Respuestas"] = n
+                row_dict["% Positivo"] = round((grp["sentiment"] == "POSITIVO").mean() * 100, 1)
+                row_dict["% Negativo"] = round((grp["sentiment"] == "NEGATIVO").mean() * 100, 1)
+                row_dict["% Neutral"] = round((grp["sentiment"] == "NEUTRAL").mean() * 100, 1)
+                agg_rows.append(row_dict)
+            if agg_rows:
+                agg_df = pd.DataFrame(agg_rows)
+                display_cols = [c for c in ["linea_negocio", "Sucursal", "Respuestas", "% Positivo", "% Negativo", "% Neutral"] if c in agg_df.columns]
+                st.dataframe(agg_df[display_cols], use_container_width=True, hide_index=True)
+
     for _, row in filtered.iterrows():
         text_preview = str(row["Valor"])[:80] + ("…" if len(str(row["Valor"])) > 80 else "")
         sent = row["sentiment"]
         color_class = f"sentiment-{sent.lower()}"
         linea_label = row.get("linea_negocio", ATTRIBUTE_LABELS.get(row["Atributo"], row["Atributo"]))
-        with st.expander(f"[{linea_label}] {text_preview}"):
+        sucursal_label = str(row.get("Sucursal", "")) if has_sucursal else ""
+        expander_title = f"[{linea_label}]"
+        if sucursal_label:
+            expander_title += f" [{sucursal_label}]"
+        expander_title += f" {text_preview}"
+        with st.expander(expander_title):
             st.markdown(f"**Texto completo:** {row['Valor']}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(
@@ -1071,6 +1251,8 @@ def render_tab_comments(df: pd.DataFrame):
             c3.markdown(f"**Confianza:** `{row['confidence']:.2%}`")
             if "linea_negocio" in df.columns:
                 st.markdown(f"**Línea de negocio:** {row['linea_negocio']}")
+            if has_sucursal and sucursal_label:
+                st.markdown(f"**Sucursal:** {sucursal_label}")
 
 
 def render_tab_keywords(df: pd.DataFrame):
