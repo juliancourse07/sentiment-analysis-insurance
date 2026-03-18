@@ -165,6 +165,15 @@ ATTRIBUTE_LABELS = {
     TARGET_ATTRIBUTES[4]: "Vida",
 }
 
+# Exact texts in the "Atributo original" column (stripped for comparison)
+TARGET_ATRIBUTO_ORIGINAL = [
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 2",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 3",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 4",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 5",
+]
+
 SENTIMENT_COLORS = {
     "POSITIVO": "#10b981",
     "NEGATIVO": "#ef4444",
@@ -584,9 +593,16 @@ def detect_columns(df: pd.DataFrame) -> dict:
     attr_col = None
     val_col = None
     linea_col = None
+    attr_original_col = None
+    suc_col = None
 
     for col in df.columns:
         col_low = col.strip().lower()
+        # Detect "Atributo original" column (priority over generic atributo)
+        if attr_original_col is None and col_low in (
+            "atributo_original", "atributo original"
+        ):
+            attr_original_col = col
         # Detect attribute column
         if attr_col is None:
             if col_low in ("atributo", "attribute"):
@@ -599,8 +615,17 @@ def detect_columns(df: pd.DataFrame) -> dict:
         # Detect line/ramo column
         if linea_col is None and ("linea" in col_low or "ramo" in col_low or "línea" in col_low):
             linea_col = col
+        # Detect branch/sucursal column
+        if suc_col is None and col_low in ("suc", "sucursal"):
+            suc_col = col
 
-    return {"atributo": attr_col, "valor": val_col, "linea": linea_col}
+    return {
+        "atributo": attr_col,
+        "atributo_original": attr_original_col,
+        "valor": val_col,
+        "linea": linea_col,
+        "sucursal": suc_col,
+    }
 
 
 def _normalize_attribute_text(series: pd.Series) -> pd.Series:
@@ -620,13 +645,68 @@ def _normalize_attribute_text(series: pd.Series) -> pd.Series:
 def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None) -> pd.DataFrame:
     """
     Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
-    Usa búsqueda flexible con regex (.str.contains) para manejar variaciones de texto,
-    incluyendo saltos de línea, espacios múltiples y números al final.
+    Si existe la columna 'Atributo original', prioriza esa ruta usando TARGET_ATRIBUTO_ORIGINAL.
+    De lo contrario, usa búsqueda flexible con regex (.str.contains) para manejar variaciones
+    de texto, incluyendo saltos de línea, espacios múltiples y números al final.
     """
     cols = detect_columns(df)
+    col_attr_original = cols["atributo_original"]
     col_attr = cols["atributo"]
     col_val = cols["valor"]
+    col_linea = cols["linea"]
+    col_suc = cols["sucursal"]
 
+    # ── Priority path: "Atributo original" column ────────────────────────────
+    if col_attr_original is not None:
+        mask = df[col_attr_original].astype(str).str.strip().isin(TARGET_ATRIBUTO_ORIGINAL)
+
+        # Determine response column: prefer literal 'Valor', then detected, then fallback
+        if "Valor" in df.columns:
+            resp_col = "Valor"
+        elif col_val is not None:
+            resp_col = col_val
+        elif len(df.columns) > 1:
+            resp_col = df.columns[1]
+        else:
+            resp_col = df.columns[0]
+
+        filtered = df[mask].copy()
+        filtered = filtered.rename(columns={col_attr_original: "Atributo", resp_col: "Valor"})
+        filtered = filtered[
+            filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")
+        ]
+
+        # Map linea_negocio from detected linea column or fallback 'General'
+        if col_linea is not None:
+            filtered["linea_negocio"] = filtered[col_linea].fillna("General").astype(str)
+        else:
+            filtered["linea_negocio"] = "General"
+
+        # Map Sucursal from detected sucursal column
+        if col_suc is not None:
+            filtered["Sucursal"] = filtered[col_suc].fillna("").astype(str)
+        else:
+            filtered["Sucursal"] = ""
+
+        # Apply optional línea filter
+        if selected_lineas:
+            filtered = filtered[filtered["linea_negocio"].isin(selected_lineas)]
+
+        # Try to extract date if available
+        date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
+        if date_cols:
+            filtered["fecha"] = pd.to_datetime(
+                df.loc[filtered.index, date_cols[0]], errors="coerce"
+            )
+
+        st.info(
+            f"Filtrado por 'Atributo original' (columna: '{col_attr_original}'): "
+            f"{len(filtered):,} filas encontradas."
+        )
+        filtered = filtered.reset_index(drop=True)
+        return filtered
+
+    # ── Fallback path: legacy Atributo column with regex patterns ────────────
     # Fallback: assume first two cols are Atributo / Valor
     if col_attr is None:
         col_attr = df.columns[0]
@@ -658,6 +738,12 @@ def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None)
         return ATTRIBUTE_LABELS.get(attr_text, "General")
 
     filtered["linea_negocio"] = filtered["Atributo"].apply(_get_linea)
+
+    # Map Sucursal from detected sucursal column
+    if col_suc is not None:
+        filtered["Sucursal"] = df.loc[filtered.index, col_suc].fillna("").astype(str)
+    else:
+        filtered["Sucursal"] = ""
 
     # Apply optional línea filter
     if selected_lineas:
@@ -924,6 +1010,29 @@ def render_tab_dashboard(df: pd.DataFrame):
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
+    # Sentiment breakdown by Sucursal
+    if "Sucursal" in df.columns and df["Sucursal"].str.strip().ne("").any():
+        pivot_suc = (
+            df[df["Sucursal"].str.strip() != ""]
+            .groupby(["Sucursal", "sentiment"])
+            .size()
+            .reset_index(name="n")
+        )
+        pivot_suc["pct"] = pivot_suc.groupby("Sucursal")["n"].transform(
+            lambda x: x / x.sum() * 100
+        )
+        fig_bar_suc = px.bar(
+            pivot_suc,
+            x="Sucursal",
+            y="pct",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS,
+            barmode="stack",
+            title="Sentimientos por Sucursal (%)",
+            labels={"Sucursal": "Sucursal", "pct": "Porcentaje (%)"},
+        )
+        st.plotly_chart(fig_bar_suc, use_container_width=True)
+
     # Temporal trend
     if "fecha" in df.columns and df["fecha"].notna().any():
         df_time = df.dropna(subset=["fecha"]).copy()
@@ -1031,7 +1140,9 @@ def render_tab_3d(df: pd.DataFrame):
 def render_tab_comments(df: pd.DataFrame):
     st.subheader("💬 Explorador de Comentarios")
 
-    col1, col2, col3 = st.columns(3)
+    has_sucursal = "Sucursal" in df.columns and df["Sucursal"].str.strip().ne("").any()
+
+    col1, col2, col3, col4 = st.columns(4) if has_sucursal else st.columns(3)
     with col1:
         sents = st.multiselect(
             "Filtrar por sentimiento",
@@ -1045,12 +1156,26 @@ def render_tab_comments(df: pd.DataFrame):
             options=lines,
             default=lines,
         )
-    with col3:
-        min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
+    if has_sucursal:
+        with col3:
+            suc_options = sorted(df.loc[df["Sucursal"].str.strip() != "", "Sucursal"].unique())
+            selected_suc = st.multiselect(
+                "Filtrar por Sucursal",
+                options=suc_options,
+                default=suc_options,
+            )
+        with col4:
+            min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
+    else:
+        selected_suc = []
+        with col3:
+            min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
 
     mask = df["sentiment"].isin(sents) & (df["confidence"] >= min_conf)
     if selected_lines and "linea_negocio" in df.columns:
         mask &= df["linea_negocio"].isin(selected_lines)
+    if selected_suc and has_sucursal:
+        mask &= df["Sucursal"].isin(selected_suc)
 
     filtered = df[mask].head(50)
     st.markdown(f"**Mostrando {len(filtered)} de {mask.sum()} comentarios filtrados**")
@@ -1071,6 +1196,8 @@ def render_tab_comments(df: pd.DataFrame):
             c3.markdown(f"**Confianza:** `{row['confidence']:.2%}`")
             if "linea_negocio" in df.columns:
                 st.markdown(f"**Línea de negocio:** {row['linea_negocio']}")
+            if has_sucursal and str(row.get("Sucursal", "")).strip():
+                st.markdown(f"**Sucursal:** {row['Sucursal']}")
 
 
 def render_tab_keywords(df: pd.DataFrame):
