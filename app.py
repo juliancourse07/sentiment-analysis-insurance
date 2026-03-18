@@ -165,6 +165,18 @@ ATTRIBUTE_LABELS = {
     TARGET_ATTRIBUTES[4]: "Vida",
 }
 
+# Exact values in "Atributo original" column that identify open-response rows
+TARGET_ATRIBUTO_ORIGINAL = [
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil?",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 2",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 3",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 4",
+    "¿Cuéntanos qué factores contribuyeron a que los aspectos anteriores los calificaras como Fácil o difícil? 5",
+]
+
+# Column name variants to detect the sucursal column
+SUCURSAL_COLUMN_VARIANTS = ["Suc", "Sucursal", "suc", "sucursal", "SUCURSAL", "SUC"]
+
 SENTIMENT_COLORS = {
     "POSITIVO": "#10b981",
     "NEGATIVO": "#ef4444",
@@ -584,9 +596,14 @@ def detect_columns(df: pd.DataFrame) -> dict:
     attr_col = None
     val_col = None
     linea_col = None
+    atributo_original_col = None
+    sucursal_col = None
 
     for col in df.columns:
         col_low = col.strip().lower()
+        # Detect "Atributo original" column (highest priority for attribute detection)
+        if atributo_original_col is None and col_low in ("atributo original", "atributo_original"):
+            atributo_original_col = col
         # Detect attribute column
         if attr_col is None:
             if col_low in ("atributo", "attribute"):
@@ -599,8 +616,21 @@ def detect_columns(df: pd.DataFrame) -> dict:
         # Detect line/ramo column
         if linea_col is None and ("linea" in col_low or "ramo" in col_low or "línea" in col_low):
             linea_col = col
+        # Detect sucursal column
+        if sucursal_col is None and col in SUCURSAL_COLUMN_VARIANTS:
+            sucursal_col = col
 
-    return {"atributo": attr_col, "valor": val_col, "linea": linea_col}
+    # If "Atributo original" exists, it overrides the generic attr_col
+    if atributo_original_col is not None:
+        attr_col = atributo_original_col
+
+    return {
+        "atributo": attr_col,
+        "valor": val_col,
+        "linea": linea_col,
+        "atributo_original": atributo_original_col,
+        "sucursal": sucursal_col,
+    }
 
 
 def _normalize_attribute_text(series: pd.Series) -> pd.Series:
@@ -620,12 +650,22 @@ def _normalize_attribute_text(series: pd.Series) -> pd.Series:
 def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None) -> pd.DataFrame:
     """
     Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
-    Usa búsqueda flexible con regex (.str.contains) para manejar variaciones de texto,
-    incluyendo saltos de línea, espacios múltiples y números al final.
+
+    Prioridad:
+    1. Si existe la columna "Atributo original", filtrar filas cuyo valor esté en
+       TARGET_ATRIBUTO_ORIGINAL (búsqueda exacta con strip).
+    2. Si no, usar búsqueda flexible con regex (ATTRIBUTE_PATTERNS) sobre la columna
+       de atributo detectada — comportamiento original.
+
+    También detecta columnas de Sucursal ("Suc", "Sucursal", etc.) y las incluye en
+    el DataFrame resultante como columna "Sucursal".
     """
     cols = detect_columns(df)
     col_attr = cols["atributo"]
     col_val = cols["valor"]
+    col_linea = cols["linea"]
+    col_atributo_original = cols["atributo_original"]
+    col_sucursal = cols["sucursal"]
 
     # Fallback: assume first two cols are Atributo / Valor
     if col_attr is None:
@@ -633,6 +673,57 @@ def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None)
     if col_val is None:
         col_val = df.columns[1] if len(df.columns) > 1 else df.columns[0]
 
+    # ── Path 1: "Atributo original" column exists ─────────────────────────────
+    used_atributo_original = False
+    if col_atributo_original is not None:
+        mask = df[col_atributo_original].astype(str).str.strip().isin(TARGET_ATRIBUTO_ORIGINAL)
+        if mask.any():
+            used_atributo_original = True
+            filtered = df[mask].copy()
+
+            # Map value column: prefer literal "Valor" if present, otherwise use detected col_val
+            valor_source = "Valor" if "Valor" in df.columns else col_val
+            rename_map = {col_atributo_original: "Atributo"}
+            if valor_source != "Valor":
+                rename_map[valor_source] = "Valor"
+            filtered = filtered.rename(columns=rename_map)
+
+            # Remove empty responses
+            filtered = filtered[
+                filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")
+            ]
+
+            # Map linea_negocio from detected line column
+            if col_linea is not None and col_linea in filtered.columns:
+                filtered["linea_negocio"] = filtered[col_linea].astype(str).str.strip()
+            elif "linea_negocio" not in filtered.columns:
+                filtered["linea_negocio"] = "General"
+
+            # Include Sucursal column if found
+            if col_sucursal is not None and col_sucursal != "Sucursal":
+                filtered = filtered.rename(columns={col_sucursal: "Sucursal"})
+
+            # Notify user
+            st.info(
+                f"📌 Filtrado por columna **'Atributo original'**: "
+                f"**{len(filtered):,}** filas retenidas de {len(df):,} originales."
+            )
+
+            # Apply optional línea filter
+            if selected_lineas:
+                filtered = filtered[filtered["linea_negocio"].isin(selected_lineas)]
+
+            # Try to extract date if available
+            date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
+            if date_cols:
+                filtered["fecha"] = pd.to_datetime(
+                    df.loc[filtered.index, date_cols[0]], errors="coerce"
+                )
+
+            filtered = filtered.reset_index(drop=True)
+            return filtered
+
+    # ── Path 2: fallback — original ATTRIBUTE_PATTERNS logic ─────────────────
     # Normalize attribute text to handle \n, multiple spaces and trailing numbers
     attr_clean = _normalize_attribute_text(df[col_attr])
 
@@ -658,6 +749,10 @@ def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None)
         return ATTRIBUTE_LABELS.get(attr_text, "General")
 
     filtered["linea_negocio"] = filtered["Atributo"].apply(_get_linea)
+
+    # Include Sucursal column if found
+    if col_sucursal is not None and col_sucursal != "Sucursal":
+        filtered = filtered.rename(columns={col_sucursal: "Sucursal"})
 
     # Apply optional línea filter
     if selected_lineas:
@@ -892,6 +987,53 @@ def render_tab_dashboard(df: pd.DataFrame):
 
     st.markdown("---")
 
+    # ── Top Ramos (linea_negocio) ─────────────────────────────────────────────
+    _TOP_N = 4
+    if "linea_negocio" in df.columns and not df["linea_negocio"].dropna().empty:
+        st.markdown("### 🏢 Desglose por Ramo (top líneas por volumen)")
+        top_lineas = df["linea_negocio"].value_counts().head(_TOP_N).index.tolist()
+        cols_lineas = st.columns(len(top_lineas))
+        for col_idx, linea in enumerate(top_lineas):
+            ld = df[df["linea_negocio"] == linea]
+            n = len(ld)
+            if n == 0:
+                continue
+            lp = (ld["sentiment"] == "POSITIVO").sum() / n * 100
+            ln = (ld["sentiment"] == "NEGATIVO").sum() / n * 100
+            lne = (ld["sentiment"] == "NEUTRAL").sum() / n * 100
+            with cols_lineas[col_idx]:
+                st.metric(f"📋 {linea}", f"{n:,} resp.")
+                st.markdown(
+                    f"<span style='color:#10b981;font-weight:700'>{lp:.0f}% Pos</span> &nbsp;"
+                    f"<span style='color:#ef4444;font-weight:700'>{ln:.0f}% Neg</span> &nbsp;"
+                    f"<span style='color:#f59e0b;font-weight:700'>{lne:.0f}% Neu</span>",
+                    unsafe_allow_html=True,
+                )
+
+    # ── Top Sucursales ────────────────────────────────────────────────────────
+    if "Sucursal" in df.columns and not df["Sucursal"].dropna().empty:
+        st.markdown("### 🏦 Desglose por Sucursal (top por volumen)")
+        top_sucs = df["Sucursal"].value_counts().head(_TOP_N).index.tolist()
+        cols_sucs = st.columns(len(top_sucs))
+        for col_idx, suc in enumerate(top_sucs):
+            sd = df[df["Sucursal"] == suc]
+            n = len(sd)
+            if n == 0:
+                continue
+            sp = (sd["sentiment"] == "POSITIVO").sum() / n * 100
+            sn = (sd["sentiment"] == "NEGATIVO").sum() / n * 100
+            sne = (sd["sentiment"] == "NEUTRAL").sum() / n * 100
+            with cols_sucs[col_idx]:
+                st.metric(f"🏦 {suc}", f"{n:,} resp.")
+                st.markdown(
+                    f"<span style='color:#10b981;font-weight:700'>{sp:.0f}% Pos</span> &nbsp;"
+                    f"<span style='color:#ef4444;font-weight:700'>{sn:.0f}% Neg</span> &nbsp;"
+                    f"<span style='color:#f59e0b;font-weight:700'>{sne:.0f}% Neu</span>",
+                    unsafe_allow_html=True,
+                )
+
+    st.markdown("---")
+
     col_left, col_right = st.columns(2)
 
     with col_left:
@@ -1055,6 +1197,28 @@ def render_tab_comments(df: pd.DataFrame):
     filtered = df[mask].head(50)
     st.markdown(f"**Mostrando {len(filtered)} de {mask.sum()} comentarios filtrados**")
 
+    # Pre-calculate sentiment stats per linea and per sucursal for efficiency
+    has_sucursal = "Sucursal" in df.columns and not df["Sucursal"].dropna().empty
+
+    def _sentiment_summary(sub: pd.DataFrame) -> str:
+        n = len(sub)
+        if n == 0:
+            return ""
+        p = (sub["sentiment"] == "POSITIVO").sum() / n * 100
+        ng = (sub["sentiment"] == "NEGATIVO").sum() / n * 100
+        ne = (sub["sentiment"] == "NEUTRAL").sum() / n * 100
+        return f"{p:.0f}% Pos / {ng:.0f}% Neg / {ne:.0f}% Neu"
+
+    linea_stats: dict = {}
+    if "linea_negocio" in df.columns:
+        for linea_val in df["linea_negocio"].unique():
+            linea_stats[linea_val] = _sentiment_summary(df[df["linea_negocio"] == linea_val])
+
+    suc_stats: dict = {}
+    if has_sucursal:
+        for suc_val in df["Sucursal"].dropna().unique():
+            suc_stats[suc_val] = _sentiment_summary(df[df["Sucursal"] == suc_val])
+
     for _, row in filtered.iterrows():
         text_preview = str(row["Valor"])[:80] + ("…" if len(str(row["Valor"])) > 80 else "")
         sent = row["sentiment"]
@@ -1070,7 +1234,18 @@ def render_tab_comments(df: pd.DataFrame):
             c2.markdown(f"**Score:** `{row['score']:.2f}`")
             c3.markdown(f"**Confianza:** `{row['confidence']:.2%}`")
             if "linea_negocio" in df.columns:
-                st.markdown(f"**Línea de negocio:** {row['linea_negocio']}")
+                linea_summary = linea_stats.get(row["linea_negocio"], "")
+                linea_info = f"**Línea de negocio:** {row['linea_negocio']}"
+                if linea_summary:
+                    linea_info += f" — {linea_summary}"
+                st.markdown(linea_info)
+            if has_sucursal and pd.notna(row.get("Sucursal")):
+                suc_val = row["Sucursal"]
+                suc_summary = suc_stats.get(suc_val, "")
+                suc_info = f"**Sucursal:** {suc_val}"
+                if suc_summary:
+                    suc_info += f" — {suc_summary}"
+                st.markdown(suc_info)
 
 
 def render_tab_keywords(df: pd.DataFrame):
