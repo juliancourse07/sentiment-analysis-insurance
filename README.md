@@ -109,6 +109,42 @@ Sin API key, la app funciona con análisis estadístico tradicional (modo fallba
 
 ---
 
+## 🤗 Configuración de HuggingFace API Token (Opcional)
+
+Para habilitar análisis remoto con modelos de HuggingFace Inference API:
+
+> ⚠️ **Seguridad**: Nunca incluyas el token directamente en el código ni en el repositorio.
+
+### Localmente
+
+```bash
+export HF_API_TOKEN="hf_tu_token_aqui"
+streamlit run app.py
+```
+
+### En Streamlit Cloud
+
+1. Ve a tu app en [share.streamlit.io](https://share.streamlit.io).
+2. Haz clic en **Manage app → Secrets**.
+3. Agrega:
+   ```toml
+   HF_API_TOKEN = "hf_tu_token_aqui"
+   ```
+4. Guarda y espera ~1 minuto a que se propague.
+
+### En `.streamlit/secrets.toml` (solo local, no subas este archivo al repo)
+
+```toml
+HF_API_TOKEN = "hf_tu_token_aqui"
+```
+
+> El archivo `.streamlit/secrets.toml` está en `.gitignore` — nunca lo incluyas en el repositorio.
+
+Si no se configura ningún token, la app usará automáticamente el **modelo local BETO** como fallback.
+Un banner en el sidebar mostrará el estado del proveedor activo.
+
+---
+
 ## 🧰 Tecnologías utilizadas
 
 | Tecnología | Uso |

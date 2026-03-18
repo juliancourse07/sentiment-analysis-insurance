@@ -8,6 +8,7 @@ IA Contextual: Groq (Llama 3.1 70B) especializada en el sector asegurador colomb
 import os
 import re
 import io
+import time
 import warnings
 from datetime import datetime, timedelta
 from collections import Counter
@@ -532,6 +533,13 @@ class HuggingFaceAnalyzer:
                     text = data[0].get("generated_text", "")
                     # Strip the echoed prompt from the response
                     return text.replace(prompt, "").strip() or text.strip()
+            elif response.status_code in (401, 403):
+                return (
+                    f"⚠️ **HF token inválido o sin permisos** (HTTP "
+                    f"{response.status_code}). Revoca y genera uno nuevo en "
+                    "https://huggingface.co/settings/tokens\n\n"
+                    + self._fallback_analysis(df_analyzed, linea)
+                )
             return self._fallback_analysis(df_analyzed, linea)
         except Exception:
             return self._fallback_analysis(df_analyzed, linea)
@@ -567,6 +575,174 @@ class HuggingFaceAnalyzer:
 
 *Nota: Configura `HF_API_TOKEN` en secrets.toml para obtener insights más profundos con IA.*
 """
+
+
+# ── Helpers de token y seguridad ──────────────────────────────────────────────
+def get_hf_token() -> str:
+    """
+    Lee el token de HuggingFace de forma segura:
+    1) st.secrets['HF_API_TOKEN'] (Streamlit Cloud / secrets.toml)
+    2) Variable de entorno HF_API_TOKEN
+    Nunca incluir el token literal en el código ni en el repositorio.
+    """
+    try:
+        token = st.secrets.get("HF_API_TOKEN", "")
+        if token:
+            return token
+    except Exception:
+        pass
+    return os.getenv("HF_API_TOKEN", "")
+
+
+# ── Helpers de sanitización para pyarrow / Streamlit ──────────────────────────
+def _to_text_safe(x) -> str:
+    """Convierte cualquier valor (bytes, int, list, None, str) a texto limpio."""
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return ""
+    if isinstance(x, bytes):
+        try:
+            return x.decode("utf-8", errors="replace")
+        except Exception:
+            return str(x)
+    if isinstance(x, (list, tuple, dict)):
+        return str(x)
+    return str(x)
+
+
+def sanitize_df_for_streamlit(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convierte columnas dtype object con mezcla de bytes/ints/str a strings limpios
+    para evitar pyarrow.lib.ArrowTypeError al serializar DataFrames en Streamlit.
+    """
+    df = df.copy()
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].apply(_to_text_safe)
+    return df
+
+
+def _ensure_1d_str(series: pd.Series) -> pd.Series:
+    """
+    Convierte celdas listas/tuplas/dicts a str y normaliza a 1-D string Series.
+    Útil para columnas clave antes de groupby o pivot.
+    """
+    return series.apply(_to_text_safe).astype(str).str.strip()
+
+
+# ── Inferencia remota y orquestación ──────────────────────────────────────────
+HF_SENTIMENT_MODEL = "PlanTL-GOB-ES/roberta-base-bne-sentiment"
+_HF_MAX_RETRIES = 3
+_HF_TIMEOUT = 30
+_HF_MAX_INPUT_LENGTH = 512
+_HF_RETRY_BACKOFF_BASE = 2
+_HF_LABEL_MAP = {
+    "POS": "POSITIVO", "POSITIVE": "POSITIVO",
+    "NEG": "NEGATIVO", "NEGATIVE": "NEGATIVO",
+    "NEU": "NEUTRAL", "NEUTRAL": "NEUTRAL",
+}
+_HF_TOKEN_ERROR_MSG = (
+    "⚠️ HF token inválido o sin permisos (HTTP {status}). "
+    "Revoca y genera uno nuevo en https://huggingface.co/settings/tokens"
+)
+
+
+def analyze_with_hf(
+    texts: list[str],
+    hf_token: str,
+    model: str = HF_SENTIMENT_MODEL,
+) -> list[dict]:
+    """
+    Llama a la HuggingFace Inference API para análisis de sentimiento en lote.
+    Retorna lista de dicts con keys: label, score, confidence.
+    Maneja errores HTTP 401/403/429 y hace retries con backoff.
+    """
+    api_url = f"https://api-inference.huggingface.co/models/{model}"
+    headers = {"Authorization": f"Bearer {hf_token}"}
+    results = []
+
+    for text in texts:
+        payload = {"inputs": text[:_HF_MAX_INPUT_LENGTH]}
+        for attempt in range(_HF_MAX_RETRIES):
+            try:
+                resp = requests.post(
+                    api_url, headers=headers, json=payload, timeout=_HF_TIMEOUT
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    # API returns [[{label, score},...]] for single input
+                    if isinstance(data, list) and data:
+                        inner = data[0] if isinstance(data[0], list) else data
+                        best = max(inner, key=lambda x: x.get("score", 0))
+                        label_raw = best.get("label", "NEU").upper()
+                        label = _HF_LABEL_MAP.get(label_raw, "NEUTRAL")
+                        score_val = {"POSITIVO": 1.0, "NEGATIVO": -1.0, "NEUTRAL": 0.0}.get(label, 0.0)
+                        results.append({
+                            "label": label,
+                            "score": score_val,
+                            "confidence": round(float(best.get("score", 0.5)), 4),
+                            "source": "hf_remote",
+                        })
+                    else:
+                        results.append(None)
+                    break
+                elif resp.status_code in (401, 403):
+                    st.warning(_HF_TOKEN_ERROR_MSG.format(status=resp.status_code))
+                    results.append(None)
+                    break
+                elif resp.status_code == 429:
+                    time.sleep(_HF_RETRY_BACKOFF_BASE ** attempt)
+                else:
+                    results.append(None)
+                    break
+            except Exception:
+                if attempt < _HF_MAX_RETRIES - 1:
+                    time.sleep(1)
+        else:
+            results.append(None)
+
+    return results
+
+
+def analyze_local_beto(texts: list[str], classifier=None) -> list[dict]:
+    """
+    Analiza textos usando el modelo BETO local (o keywords como fallback).
+    Retorna lista de dicts con keys: label, score, confidence, source.
+    """
+    analyzer = SentimentAnalyzer()
+    if classifier is None:
+        classifier = analyzer.load_model()
+    results = []
+    for text in texts:
+        res = analyzer.analyze_sentiment(str(text), classifier)
+        results.append({
+            "label": res["sentiment"],
+            "score": res["score"],
+            "confidence": res["confidence"],
+            "source": "local_beto",
+        })
+    return results
+
+
+def analyze_texts(texts: list[str]) -> list[dict]:
+    """
+    Orquestador: intenta HuggingFace (si hay token) → fallback a BETO local.
+    Retorna lista de dicts con keys: label, score, confidence, source.
+    """
+    hf_token = get_hf_token()
+    if not hf_token:
+        return analyze_local_beto(texts)
+
+    hf_results = analyze_with_hf(texts, hf_token)
+
+    # Fallback a BETO para los textos donde HF devolvió None
+    failed_indices = [i for i, r in enumerate(hf_results) if r is None]
+    if failed_indices:
+        failed_texts = [texts[i] for i in failed_indices]
+        local_results = analyze_local_beto(failed_texts)
+        for idx, local_res in zip(failed_indices, local_results):
+            hf_results[idx] = local_res
+
+    return hf_results
 
 
 # ── Helpers de datos ───────────────────────────────────────────────────────────
@@ -647,6 +823,7 @@ def _coerce_columns_1d(df: pd.DataFrame, *cols: str) -> pd.DataFrame:
     Ensures the given columns in df are 1-D string Series.
     If a column is a DataFrame (due to duplicate column names after rename),
     takes the first sub-column and casts to str. Safe no-op if column absent.
+    Uses _ensure_1d_str to handle lists/tuples/dicts/bytes cells safely.
     """
     df = df.copy()
     for col in cols:
@@ -654,7 +831,7 @@ def _coerce_columns_1d(df: pd.DataFrame, *cols: str) -> pd.DataFrame:
             if isinstance(df[col], pd.DataFrame):
                 # Duplicate columns cause df[col] to return a DataFrame — take first
                 df[col] = df[col].iloc[:, 0]
-            df[col] = df[col].astype(str).str.strip()
+            df[col] = _ensure_1d_str(df[col])
     return df
 
 
@@ -1209,7 +1386,7 @@ def render_tab_3d(df: pd.DataFrame):
             .reset_index()
         )
         summary_sent.columns = ["Sentimiento", "Cantidad", "Confianza Prom.", "Score Prom."]
-        st.dataframe(summary_sent, use_container_width=True, hide_index=True)
+        st.dataframe(sanitize_df_for_streamlit(summary_sent), use_container_width=True, hide_index=True)
 
     with col2:
         if "linea_negocio" in df.columns:
@@ -1225,7 +1402,7 @@ def render_tab_3d(df: pd.DataFrame):
                 .reset_index()
             )
             summary_ln.columns = ["Línea", "Cantidad", "% Positivo", "% Negativo"]
-            st.dataframe(summary_ln, use_container_width=True, hide_index=True)
+            st.dataframe(sanitize_df_for_streamlit(summary_ln), use_container_width=True, hide_index=True)
 
     # Keywords bar
     col3, col4 = st.columns(2)
@@ -1251,7 +1428,7 @@ def render_tab_3d(df: pd.DataFrame):
             lambda a: ATTRIBUTE_LABELS.get(a, a)
         )
         summary_attr.columns = ["Atributo", "Cantidad"]
-        st.dataframe(summary_attr, use_container_width=True, hide_index=True)
+        st.dataframe(sanitize_df_for_streamlit(summary_attr), use_container_width=True, hide_index=True)
 
 
 def render_tab_comments(df: pd.DataFrame):
@@ -1543,7 +1720,7 @@ def render_tab_export(df: pd.DataFrame):
 
     st.markdown("---")
     st.markdown("**Vista previa de datos**")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(sanitize_df_for_streamlit(df), use_container_width=True)
 
 
 # ── Pantalla de bienvenida ─────────────────────────────────────────────────────
@@ -1682,6 +1859,13 @@ def render_sidebar() -> tuple:
             )
             if selected_lineas:
                 st.info(f"📊 Filtrando por {len(selected_lineas)} línea(s)")
+
+        # ── HF token banner ───────────────────────────────────────────────────
+        hf_token_detected = bool(get_hf_token())
+        if hf_token_detected:
+            st.success("🤗 HuggingFace token detectado — IA remota habilitada")
+        else:
+            st.info("ℹ️ No hay HF token configurado — usando modelo local (BETO) como fallback")
 
         st.markdown("---")
         analyze_btn = st.button(
