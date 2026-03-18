@@ -1609,6 +1609,9 @@ def render_tab_ai(df: pd.DataFrame):
     # Instantiate analyzers once per render, outside the column layout blocks
     groq_ai = ColombianInsuranceAI()
     hf_ai = HuggingFaceAnalyzer()
+    
+    st.write(f"🔍 DEBUG: Token detectado: {hf_ai.api_token[:10]}..." if hf_ai.api_token else "❌ No hay token")
+    st.write(f"🔍 DEBUG: Available: {hf_ai.available}")
 
     proveedor_options = []
     if groq_ai.client:
