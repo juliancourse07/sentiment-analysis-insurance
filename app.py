@@ -500,19 +500,6 @@ class GroqAnalyzer:
     def available(self) -> bool:
         return bool(self.api_token)
 
-    def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-        """Genera insights usando Groq o estadísticas como fallback."""
-        st.write(f"🔍 DEBUG analyze_with_context: Entrando al método")
-        st.write(f"🔍 DEBUG analyze_with_context: self.api_token = '{self.api_token[:15] if self.api_token else 'VACIO'}'")
-        st.write(f"🔍 DEBUG analyze_with_context: bool(self.api_token) = {bool(self.api_token)}")
-        
-        if self.api_token:
-            st.write(f"✅ DEBUG: SÍ hay token, llamando a _groq_analysis")
-            return self._groq_analysis(df_analyzed, linea)
-        else:
-            st.write(f"❌ DEBUG: NO hay token, llamando a _fallback_analysis")
-            return self._fallback_analysis(df_analyzed, linea)
-
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Análisis usando Groq."""
         from groq import Groq
@@ -530,9 +517,6 @@ class GroqAnalyzer:
         
         benchmark = SECTOR_BENCHMARK
         gap = pct_pos - benchmark
-        
-        negativos = df_analyzed[df_analyzed["sentiment"] == "NEGATIVO"]["Respuesta"].head(5).tolist()
-        ejemplos_negativos = "\n".join([f"- {c[:100]}" for c in negativos[:3]]) if negativos else "No hay suficientes comentarios negativos"
 
         prompt = f"""Eres un analista senior del sector asegurador colombiano con 15 años de experiencia en la Superintendencia Financiera de Colombia.
 
@@ -547,9 +531,6 @@ class GroqAnalyzer:
 - Promedio industria aseguradora: {benchmark}%
 - Brecha de tu compañía: {gap:+.1f} puntos porcentuales
 
-**EJEMPLOS DE COMENTARIOS NEGATIVOS:**
-{ejemplos_negativos}
-
 **TU MISIÓN:**
 Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
 
@@ -560,7 +541,7 @@ Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
    - Comparación con líderes del sector (Sura, Bolivar, Mapfre)
 
 2. **INSIGHTS ESTRATÉGICOS** (3-4 insights, 150 palabras):
-   - Patrones en comentarios negativos
+   - Patrones que puedes inferir de los datos
    - Oportunidades específicas para {linea or 'la compañía'}
    - Riesgos regulatorios (Superfinanciera)
    - Tendencias del mercado colombiano
