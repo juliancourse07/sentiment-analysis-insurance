@@ -344,112 +344,162 @@ class SentimentAnalyzer:
 
 
 # ── IA Contextual: Sector Asegurador Colombiano ────────────────────────────────
-class ColombianInsuranceAI:
+class GroqAnalyzer:
     """
-    IA especializada en análisis de sentimientos para el sector asegurador colombiano.
-    Usa Groq API (Llama 3.1 70B) si está disponible; análisis estadístico como fallback.
+    Análisis contextual usando Groq Inference API (Llama-3.1-8B-Instant).
+    El token se lee desde st.secrets['GROQ_API_KEY'] o la variable de entorno GROQ_API_KEY.
     """
-
-    BENCHMARK = SECTOR_BENCHMARK
 
     def __init__(self):
-        # Try Streamlit secrets first, then environment variable
-        self.api_key = ""
+        pass  # No almacenamos el token en __init__ para permitir recarga dinámica
+
+    @property
+    def api_token(self) -> str:
+        """Lee el token dinámicamente cada vez que se accede."""
         try:
-            self.api_key = st.secrets.get("GROQ_API_KEY", "")
+            token = st.secrets.get("GROQ_API_KEY", "")
+            if token:
+                return token
         except Exception:
             pass
-        if not self.api_key:
-            self.api_key = os.getenv("GROQ_API_KEY", "")
-        self.client = None
-        if self.api_key:
-            try:
-                import groq
-                self.client = groq.Groq(api_key=self.api_key)
-            except ImportError:
-                pass
+        return os.getenv("GROQ_API_KEY", "")
+
+    @property
+    def available(self) -> bool:
+        return bool(self.api_token)
 
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-        """Genera insights contextualizados usando IA o estadísticas."""
-        if self.client:
+        """Genera insights usando Groq o estadísticas como fallback."""
+        st.write(f"🔍 DEBUG analyze_with_context: Entrando al método")
+        st.write(f"🔍 DEBUG analyze_with_context: self.api_token = '{self.api_token[:15] if self.api_token else 'VACIO'}'")
+        st.write(f"🔍 DEBUG analyze_with_context: bool(self.api_token) = {bool(self.api_token)}")
+        
+        if self.api_token:
+            st.write(f"✅ DEBUG: SÍ hay token, llamando a _groq_analysis")
             return self._groq_analysis(df_analyzed, linea)
-        return self._fallback_analysis(df_analyzed, linea)
+        else:
+            st.write(f"❌ DEBUG: NO hay token, llamando a _fallback_analysis")
+            return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        """Análisis usando Groq."""
+        from groq import Groq
+        
+        st.write(f"🔍 DEBUG: Entró a _groq_analysis")
+        st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
+        
         total = len(df_analyzed)
         if total == 0:
             return "No hay datos suficientes para el análisis."
 
         pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+        pct_neu = (df_analyzed["sentiment"] == "NEUTRAL").sum() / total * 100
+        
+        benchmark = SECTOR_BENCHMARK
+        gap = pct_pos - benchmark
 
-        top_neg = df_analyzed[df_analyzed["sentiment"] == "NEGATIVO"]["Valor"].astype(str).head(3).tolist()
-        top_pos = df_analyzed[df_analyzed["sentiment"] == "POSITIVO"]["Valor"].astype(str).head(3).tolist()
+        prompt = f"""Eres un analista senior del sector asegurador colombiano con 15 años de experiencia en la Superintendencia Financiera de Colombia.
 
-        neg_items = "\n".join([f"- {c[:150]}" for c in top_neg[:3]])
-        pos_items = "\n".join([f"- {c[:150]}" for c in top_pos[:3]])
+**DATOS DE LA COMPAÑÍA:**
+- Línea de negocio: {linea or 'Todas las líneas'}
+- Total de respuestas analizadas: {total}
+- Satisfacción positiva: {pct_pos:.1f}%
+- Satisfacción negativa: {pct_neg:.1f}%
+- Satisfacción neutral: {pct_neu:.1f}%
 
-        prompt = f"""
-Eres un analista experto del sector asegurador colombiano, especializado en análisis de satisfacción del cliente y regulado por la Superfinanciera de Colombia.
+**BENCHMARK DEL SECTOR COLOMBIANO:**
+- Promedio industria aseguradora: {benchmark}%
+- Brecha de tu compañía: {gap:+.1f} puntos porcentuales
 
-DATOS DEL ANÁLISIS:
-- Línea de negocio: {linea if linea else 'General'}
-- Total respuestas: {total}
-- Sentimiento positivo: {pct_pos:.1f}%
-- Sentimiento negativo: {pct_neg:.1f}%
+**TU MISIÓN:**
+Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
 
-PRINCIPALES QUEJAS:
-{neg_items}
+1. **DIAGNÓSTICO COMPETITIVO** (150 palabras):
+   - Posición exacta vs. promedio sector ({benchmark}%)
+   - Si están por debajo: ¿cuántos puntos deben recuperar?
+   - Si están por encima: ¿cómo mantener la ventaja?
+   - Comparación con líderes del sector (Sura, Bolivar, Mapfre)
 
-PRINCIPALES ELOGIOS:
-{pos_items}
+2. **INSIGHTS ESTRATÉGICOS** (3-4 insights, 150 palabras):
+   - Patrones que puedes inferir de los datos
+   - Oportunidades específicas para {linea or 'la compañía'}
+   - Riesgos regulatorios (Superfinanciera)
+   - Tendencias del mercado colombiano
 
-CONTEXTO DEL SECTOR EN COLOMBIA:
-- El mercado asegurador colombiano tiene desafíos de educación financiera
-- Los clientes valoran: rapidez, claridad, transparencia, facilidad digital
-- Puntos de dolor comunes: complejidad de trámites, tiempos de respuesta, documentación excesiva
-- Benchmark del sector: satisfacción promedio entre 60-75%
+3. **RECOMENDACIONES PRIORIZADAS** (3 acciones, 150 palabras):
+   - Acción #1: Alto impacto, ejecución inmediata
+   - Acción #2: Mejora operativa clave
+   - Acción #3: Diferenciador competitivo
 
-INSTRUCCIONES:
-1. Analiza los datos con perspectiva del mercado colombiano
-2. Identifica 3 insights clave específicos para esta línea
-3. Proporciona 2 recomendaciones accionables basadas en mejores prácticas locales
-4. Compara con benchmarks del sector (si es relevante)
-5. Sé conciso (máximo 300 palabras)
+4. **PROYECCIÓN DE IMPACTO**:
+   - Si implementan las 3 acciones: ¿cuántos puntos pueden ganar?
+   - Timeline realista para alcanzar {benchmark}% o superarlo
 
-Formato de respuesta:
-## 🎯 Insights Clave
-[3 puntos específicos]
-
-## 💡 Recomendaciones
-[2 acciones concretas]
-
-## 📊 Benchmark
-[Comparativa si aplica]
+**TONO:** Directo, ejecutivo, con datos concretos del mercado colombiano.
+**FORMATO:** Usa markdown con headers (##), bullets, y negritas para KPIs.
 """
+
         try:
-            response = self.client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+            st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
+            
+            client = Groq(api_key=self.api_token)
+            
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
                 messages=[
-                    {"role": "system", "content": "Eres un analista experto del sector asegurador colombiano."},
-                    {"role": "user", "content": prompt},
+                    {
+                        "role": "system", 
+                        "content": "Eres un analista senior de seguros en Colombia con expertise en análisis competitivo del sector regulado por la Superfinanciera. Generas insights accionables basados en datos."
+                    },
+                    {"role": "user", "content": prompt}
                 ],
-                temperature=0.7,
-                max_tokens=800,
+                temperature=0.75,
+                max_tokens=1200,
             )
-            return response.choices[0].message.content
-        except Exception:
+            
+            text = completion.choices[0].message.content
+            
+            st.write(f"🔍 DEBUG: Groq respondió exitosamente")
+            st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
+            
+            footer = f"""
+
+---
+
+### 📊 Datos de la Comparación
+
+| Métrica | Tu Compañía | Sector | Brecha |
+|---------|-------------|--------|--------|
+| Satisfacción | **{pct_pos:.1f}%** | {benchmark}% | **{gap:+.1f}pp** |
+| Insatisfacción | {pct_neg:.1f}% | ~{100-benchmark:.0f}% | {(pct_neg - (100-benchmark)):+.1f}pp |
+| Respuestas analizadas | {total} | N/A | - |
+
+**Nota metodológica:** Análisis basado en {total} respuestas reales usando modelo Llama 3.1 (Groq). Benchmark sector: Promedio ponderado aseguradoras colombianas (Superfinanciera, 2024).
+"""
+            
+            return text.strip() + footer
+            
+        except Exception as e:
+            st.write(f"❌ DEBUG ERROR: {str(e)}")
+            st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
+            import traceback
+            st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
             return self._fallback_analysis(df_analyzed, linea)
 
     def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        """Análisis estadístico como fallback."""
         total = len(df_analyzed)
         if total == 0:
             return "No hay datos suficientes para el análisis."
 
         pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
-        benchmark = self.BENCHMARK
-
+        
+        benchmark = SECTOR_BENCHMARK
+        
+        linea_texto = f"línea {linea}" if linea and linea != "Todas las líneas" else "todas las líneas"
+        
         return f"""
 ## 🎯 Insights Clave
 
@@ -461,16 +511,17 @@ Formato de respuesta:
 
 ## 💡 Recomendaciones
 
-1. **Priorizar**: Analizar comentarios negativos para identificar puntos de dolor recurrentes (tiempos, claridad, procesos).
+1. **Priorizar**: Analizar comentarios negativos para identificar puntos de dolor recurrentes.
 
 2. **Amplificar**: Documentar y replicar las experiencias positivas como mejores prácticas internas.
 
 ## 📊 Benchmark Sector Asegurador Colombia
+
 - Promedio industria: ~{benchmark}% satisfacción
 - Tu resultado: {pct_pos:.1f}%
-- {"✅ Por encima del promedio" if pct_pos > benchmark else "⚠️ Oportunidad de mejora"}
+- {"⚠️ Por debajo del promedio" if pct_pos < benchmark else "✅ Oportunidad de mejora"}
 
-*Nota: Configura `GROQ_API_KEY` o `HF_API_TOKEN` para obtener insights más profundos con IA.*
+*Nota: Configura GROQ_API_KEY en secrets.toml para obtener insights más profundos con IA.*
 """
 
 
