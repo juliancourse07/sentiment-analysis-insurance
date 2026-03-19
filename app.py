@@ -513,7 +513,7 @@ class GroqAnalyzer:
             st.write(f"❌ DEBUG: NO hay token, llamando a _fallback_analysis")
             return self._fallback_analysis(df_analyzed, linea)
 
-    def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Análisis usando Groq."""
         from groq import Groq
         
@@ -526,13 +526,58 @@ class GroqAnalyzer:
 
         pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+        pct_neu = (df_analyzed["sentiment"] == "NEUTRAL").sum() / total * 100
+        
+        benchmark = SECTOR_BENCHMARK  # 68%
+        gap = pct_pos - benchmark
+        
+        # Top 5 comentarios negativos para contexto
+        negativos = df_analyzed[df_analyzed["sentiment"] == "NEGATIVO"]["Respuesta"].head(5).tolist()
+        ejemplos_negativos = "\n".join([f"- {c[:100]}" for c in negativos[:3]]) if negativos else "No hay suficientes comentarios negativos"
 
-        prompt = (
-            f"Eres analista del sector asegurador colombiano (Superfinanciera).\n\n"
-            f"Datos: {total} respuestas, {pct_pos:.1f}% positivo, {pct_neg:.1f}% negativo\n"
-            f"Línea: {linea or 'Todas'}\n\n"
-            f"Da 3 insights clave y 2 recomendaciones para Colombia (max 250 palabras)."
-        )
+        prompt = f"""Eres un analista senior del sector asegurador colombiano con 15 años de experiencia en la Superintendencia Financiera de Colombia.
+
+**DATOS DE LA COMPAÑÍA:**
+- Línea de negocio: {linea or 'Todas las líneas'}
+- Total de respuestas analizadas: {total}
+- Satisfacción positiva: {pct_pos:.1f}%
+- Satisfacción negativa: {pct_neg:.1f}%
+- Satisfacción neutral: {pct_neu:.1f}%
+
+**BENCHMARK DEL SECTOR COLOMBIANO:**
+- Promedio industria aseguradora: {benchmark}%
+- Brecha de tu compañía: {gap:+.1f} puntos porcentuales ({'+' if gap > 0 else ''}{gap:.1f}%)
+
+**EJEMPLOS DE COMENTARIOS NEGATIVOS:**
+{ejemplos_negativos}
+
+**TU MISIÓN:**
+Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
+
+1. **DIAGNÓSTICO COMPETITIVO** (150 palabras):
+   - Posición exacta vs. promedio sector ({benchmark}%)
+   - Si están por debajo: ¿cuántos puntos deben recuperar?
+   - Si están por encima: ¿cómo mantener la ventaja?
+   - Comparación con líderes del sector (Sura, Bolivar, Mapfre)
+
+2. **INSIGHTS ESTRATÉGICOS** (3-4 insights, 150 palabras):
+   - Patrones en comentarios negativos
+   - Oportunidades específicas para {linea or 'la compañía'}
+   - Riesgos regulatorios (Superfinanciera)
+   - Tendencias del mercado colombiano
+
+3. **RECOMENDACIONES PRIORIZADAS** (3 acciones, 150 palabras):
+   - Acción #1: Alto impacto, ejecución inmediata
+   - Acción #2: Mejora operativa clave
+   - Acción #3: Diferenciador competitivo
+
+4. **PROYECCIÓN DE IMPACTO**:
+   - Si implementan las 3 acciones: ¿cuántos puntos pueden ganar?
+   - Timeline realista para alcanzar {benchmark}% o superarlo
+
+**TONO:** Directo, ejecutivo, con datos concretos del mercado colombiano.
+**FORMATO:** Usa markdown con headers (##), bullets, y negritas para KPIs.
+"""
 
         try:
             st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
@@ -542,11 +587,14 @@ class GroqAnalyzer:
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[
-                    {"role": "system", "content": "Eres un analista experto del sector asegurador colombiano."},
+                    {
+                        "role": "system", 
+                        "content": "Eres un analista senior de seguros en Colombia con expertise en análisis competitivo del sector regulado por la Superfinanciera. Generas insights accionables basados en datos."
+                    },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.7,
-                max_tokens=500,
+                temperature=0.75,  # Un poco más de creatividad
+                max_tokens=1200,   # 3x más tokens para respuestas largas
             )
             
             text = completion.choices[0].message.content
@@ -554,7 +602,23 @@ class GroqAnalyzer:
             st.write(f"🔍 DEBUG: Groq respondió exitosamente")
             st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
             
-            return text.strip()
+            # Agregar contexto adicional al final
+            footer = f"""
+
+---
+
+### 📊 Datos de la Comparación
+
+| Métrica | Tu Compañía | Sector | Brecha |
+|---------|-------------|--------|--------|
+| Satisfacción | **{pct_pos:.1f}%** | {benchmark}% | **{gap:+.1f}pp** |
+| Insatisfacción | {pct_neg:.1f}% | ~{100-benchmark:.0f}% | {(pct_neg - (100-benchmark)):+.1f}pp |
+| Respuestas analizadas | {total} | N/A | - |
+
+**Nota metodológica:** Análisis basado en {total} respuestas reales usando modelo Llama 3.1 (Groq). Benchmark sector: Promedio ponderado aseguradoras colombianas (Superfinanciera, 2024).
+"""
+            
+            return text.strip() + footer
             
         except Exception as e:
             st.write(f"❌ DEBUG ERROR: {str(e)}")
@@ -562,43 +626,6 @@ class GroqAnalyzer:
             import traceback
             st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
             return self._fallback_analysis(df_analyzed, linea)
-
-    def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-        """Análisis estadístico como fallback."""
-        total = len(df_analyzed)
-        if total == 0:
-            return "No hay datos suficientes para el análisis."
-
-        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
-        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
-        
-        benchmark = SECTOR_BENCHMARK
-        
-        linea_texto = f"línea {linea}" if linea and linea != "Todas las líneas" else "todas las líneas"
-        
-        return f"""
-## 🎯 Insights Clave
-
-1. **Satisfacción General**: Con {pct_pos:.1f}% de sentimientos positivos, la línea {"supera" if pct_pos > benchmark else "requiere mejoras para alcanzar"} el benchmark del sector ({benchmark}%).
-
-2. **Áreas de Atención**: {pct_neg:.1f}% de respuestas negativas indican oportunidades de mejora en experiencia del cliente.
-
-3. **Confianza del Modelo**: Análisis robusto basado en {total} respuestas reales de clientes.
-
-## 💡 Recomendaciones
-
-1. **Priorizar**: Analizar comentarios negativos para identificar puntos de dolor recurrentes.
-
-2. **Amplificar**: Documentar y replicar las experiencias positivas como mejores prácticas internas.
-
-## 📊 Benchmark Sector Asegurador Colombia
-
-- Promedio industria: ~{benchmark}% satisfacción
-- Tu resultado: {pct_pos:.1f}%
-- {"⚠️ Por debajo del promedio" if pct_pos < benchmark else "✅ Oportunidad de mejora"}
-
-*Nota: Configura GROQ_API_KEY en secrets.toml para obtener insights más profundos con IA.*
-"""
         
 
 # ── Helpers de token y seguridad ──────────────────────────────────────────────
