@@ -528,33 +528,33 @@ class GroqAnalyzer:
     )
 
     try:
-        st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
-        
-        client = Groq(api_key=self.api_token)
-        
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Eres un analista experto del sector asegurador colombiano."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=500,
-        )
-        
-        text = completion.choices[0].message.content
-        
-        st.write(f"🔍 DEBUG: Groq respondió exitosamente")
-        st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
-        
-        return text.strip()
-        
-    except Exception as e:
-        st.write(f"❌ DEBUG ERROR: {str(e)}")
-        st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
-        import traceback
-        st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
-        return self._fallback_analysis(df_analyzed, linea)
+            st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
+            
+            client = Groq(api_key=self.api_token)
+            
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "Eres un analista experto del sector asegurador colombiano."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
+            
+            text = completion.choices[0].message.content
+            
+            st.write(f"🔍 DEBUG: Groq respondió exitosamente")
+            st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
+            
+            return text.strip()
+            
+        except Exception as e:
+            st.write(f"❌ DEBUG ERROR: {str(e)}")
+            st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
+            import traceback
+            st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
+            return self._fallback_analysis(df_analyzed, linea)
 
     def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         total = len(df_analyzed)
