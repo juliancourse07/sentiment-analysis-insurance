@@ -615,7 +615,16 @@ Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
 
 **Nota metodológica:** Análisis basado en {total} respuestas reales usando modelo Llama 3.1 (Groq). Benchmark sector: Promedio ponderado aseguradoras colombianas (Superfinanciera, 2024).
 """
-        
+            
+            return text.strip() + footer
+            
+        except Exception as e:
+            st.write(f"❌ DEBUG ERROR: {str(e)}")
+            st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
+            import traceback
+            st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
+            return self._fallback_analysis(df_analyzed, linea)
+
 # ── Helpers de token y seguridad ──────────────────────────────────────────────
 def get_hf_token() -> str:
     """
