@@ -474,7 +474,7 @@ Formato de respuesta:
 """
 
 
-# ─── IA Contextual: Groq (Llama 3.2) ───────────────────────────────────────────
+# ─── IA Contextual: Groq (Llama 3.1) ───────────────────────────────────────────
 
 class GroqAnalyzer:
     """
@@ -507,27 +507,27 @@ class GroqAnalyzer:
         return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-            """Análisis usando Groq."""
-            from groq import Groq
-    
-            st.write(f"🔍 DEBUG: Entró a _groq_analysis")
-            st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
-    
-            total = len(df_analyzed)
-            if total == 0:
-                return "No hay datos suficientes para el análisis."
+        """Análisis usando Groq."""
+        from groq import Groq
+        
+        st.write(f"🔍 DEBUG: Entró a _groq_analysis")
+        st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
+        
+        total = len(df_analyzed)
+        if total == 0:
+            return "No hay datos suficientes para el análisis."
 
-    pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
-    pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
+        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
 
-    prompt = (
-        f"Eres analista del sector asegurador colombiano (Superfinanciera).\n\n"
-        f"Datos: {total} respuestas, {pct_pos:.1f}% positivo, {pct_neg:.1f}% negativo\n"
-        f"Línea: {linea or 'Todas'}\n\n"
-        f"Da 3 insights clave y 2 recomendaciones para Colombia (max 250 palabras)."
-    )
+        prompt = (
+            f"Eres analista del sector asegurador colombiano (Superfinanciera).\n\n"
+            f"Datos: {total} respuestas, {pct_pos:.1f}% positivo, {pct_neg:.1f}% negativo\n"
+            f"Línea: {linea or 'Todas'}\n\n"
+            f"Da 3 insights clave y 2 recomendaciones para Colombia (max 250 palabras)."
+        )
 
-    try:
+        try:
             st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
             
             client = Groq(api_key=self.api_token)
@@ -549,7 +549,7 @@ class GroqAnalyzer:
             
             return text.strip()
             
-    except Exception as e:
+        except Exception as e:
             st.write(f"❌ DEBUG ERROR: {str(e)}")
             st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
             import traceback
@@ -557,16 +557,18 @@ class GroqAnalyzer:
             return self._fallback_analysis(df_analyzed, linea)
 
     def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        """Análisis estadístico como fallback."""
         total = len(df_analyzed)
         if total == 0:
             return "No hay datos suficientes para el análisis."
+
         pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
         
         benchmark = SECTOR_BENCHMARK
-
+        
         linea_texto = f"línea {linea}" if linea and linea != "Todas las líneas" else "todas las líneas"
-
+        
         return f"""
 ## 🎯 Insights Clave
 
@@ -583,13 +585,14 @@ class GroqAnalyzer:
 2. **Amplificar**: Documentar y replicar las experiencias positivas como mejores prácticas internas.
 
 ## 📊 Benchmark Sector Asegurador Colombia
+
 - Promedio industria: ~{benchmark}% satisfacción
 - Tu resultado: {pct_pos:.1f}%
-- {"✅ Por encima del promedio" if pct_pos > benchmark else "⚠️ Oportunidad de mejora"}
+- {"⚠️ Por debajo del promedio" if pct_pos < benchmark else "✅ Oportunidad de mejora"}
 
-*Nota: Configura `HF_API_TOKEN` en secrets.toml para obtener insights más profundos con IA.*
+*Nota: Configura GROQ_API_KEY en secrets.toml para obtener insights más profundos con IA.*
 """
-
+        
 
 # ── Helpers de token y seguridad ──────────────────────────────────────────────
 def get_hf_token() -> str:
