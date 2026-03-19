@@ -503,8 +503,8 @@ class HuggingFaceAnalyzer:
 
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Genera insights usando HuggingFace o estadísticas como fallback."""
-        if self.available:
-            return self._hf_analysis(df_analyzed, linea)
+        if self.api_token:
+              return self._hf_analysis(df_analyzed, linea)
         return self._fallback_analysis(df_analyzed, linea)
 
     def _hf_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
