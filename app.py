@@ -481,7 +481,7 @@ class HuggingFaceAnalyzer:
     El token se lee desde st.secrets['HF_API_TOKEN'] o la variable de entorno HF_API_TOKEN.
     """
 
-    API_URL = "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct"
+    API_URL = "https://api-inference.huggingface.co/models/meta-llama/Llama-3.2-3B-Instruct"
 
     def __init__(self):
         pass  # No almacenamos el token en __init__ para permitir recarga dinámica
