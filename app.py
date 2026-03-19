@@ -1663,11 +1663,11 @@ def render_tab_ai(df: pd.DataFrame):
 
     if st.session_state.get("generate_ia", False):
         selected_provider = st.session_state.get("ia_proveedor", proveedor)
-        with st.spinner("🧠 Analizando con contexto del sector asegurador colombiano…"):
+        with st.spinner("🤖 Analizando con contexto del sector asegurador colombiano..."):
             if "HuggingFace" in selected_provider:
-                analyzer_obj = hf_ai
+                analyzer_obj = GroqAnalyzer()
             else:
-                analyzer_obj = groq_ai
+                analyzer_obj = GroqAnalyzer()
 
             if "Todas" in linea_ia:
                 insights = analyzer_obj.analyze_with_context(df)
