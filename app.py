@@ -530,7 +530,11 @@ class HuggingFaceAnalyzer:
             "parameters": {"max_new_tokens": 500, "temperature": 0.7},
         }
         headers = {"Authorization": f"Bearer {self.api_token}"}
-
+        
+        st.write(f"🔍 DEBUG: A punto de llamar a HuggingFace API")
+        st.write(f"🔍 DEBUG: URL = {self.API_URL}")
+        st.write(f"🔍 DEBUG: Headers = Bearer {self.api_token[:10]}...")
+        
         try:
             response = requests.post(
                 self.API_URL, headers=headers, json=payload, timeout=30
