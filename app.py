@@ -560,10 +560,12 @@ class GroqAnalyzer:
         total = len(df_analyzed)
         if total == 0:
             return "No hay datos suficientes para el análisis."
-
         pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+        
         benchmark = SECTOR_BENCHMARK
+
+        linea_texto = f"línea {linea}" if linea and linea != "Todas las líneas" else "todas las líneas"
 
         return f"""
 ## 🎯 Insights Clave
