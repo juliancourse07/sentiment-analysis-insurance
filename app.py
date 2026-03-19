@@ -514,7 +514,7 @@ class GroqAnalyzer:
             return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-         """Análisis usando Groq."""
+        """Análisis usando Groq."""
         from groq import Groq
         
         st.write(f"🔍 DEBUG: Entró a _groq_analysis")
@@ -528,10 +528,9 @@ class GroqAnalyzer:
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
         pct_neu = (df_analyzed["sentiment"] == "NEUTRAL").sum() / total * 100
         
-        benchmark = SECTOR_BENCHMARK  # 68%
+        benchmark = SECTOR_BENCHMARK
         gap = pct_pos - benchmark
         
-        # Top 5 comentarios negativos para contexto
         negativos = df_analyzed[df_analyzed["sentiment"] == "NEGATIVO"]["Respuesta"].head(5).tolist()
         ejemplos_negativos = "\n".join([f"- {c[:100]}" for c in negativos[:3]]) if negativos else "No hay suficientes comentarios negativos"
 
@@ -546,7 +545,7 @@ class GroqAnalyzer:
 
 **BENCHMARK DEL SECTOR COLOMBIANO:**
 - Promedio industria aseguradora: {benchmark}%
-- Brecha de tu compañía: {gap:+.1f} puntos porcentuales ({'+' if gap > 0 else ''}{gap:.1f}%)
+- Brecha de tu compañía: {gap:+.1f} puntos porcentuales
 
 **EJEMPLOS DE COMENTARIOS NEGATIVOS:**
 {ejemplos_negativos}
@@ -593,8 +592,8 @@ Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.75,  # Un poco más de creatividad
-                max_tokens=1200,   # 3x más tokens para respuestas largas
+                temperature=0.75,
+                max_tokens=1200,
             )
             
             text = completion.choices[0].message.content
@@ -602,7 +601,6 @@ Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
             st.write(f"🔍 DEBUG: Groq respondió exitosamente")
             st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
             
-            # Agregar contexto adicional al final
             footer = f"""
 
 ---
@@ -617,17 +615,7 @@ Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
 
 **Nota metodológica:** Análisis basado en {total} respuestas reales usando modelo Llama 3.1 (Groq). Benchmark sector: Promedio ponderado aseguradoras colombianas (Superfinanciera, 2024).
 """
-            
-            return text.strip() + footer
-            
-        except Exception as e:
-            st.write(f"❌ DEBUG ERROR: {str(e)}")
-            st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
-            import traceback
-            st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
-            return self._fallback_analysis(df_analyzed, linea)
         
-
 # ── Helpers de token y seguridad ──────────────────────────────────────────────
 def get_hf_token() -> str:
     """
