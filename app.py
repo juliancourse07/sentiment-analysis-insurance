@@ -1682,14 +1682,14 @@ def render_tab_ai(df: pd.DataFrame):
     st.markdown("*Análisis contextualizado para el sector asegurador colombiano*")
 
     # Instantiate analyzers once per render, outside the column layout blocks
-    groq_ai = ColombianInsuranceAI()
+    groq_ai = GroqAnalyzer()
     hf_ai = GroqAnalyzer()
     
     st.write(f"🔍 DEBUG: Token detectado: {hf_ai.api_token[:10]}..." if hf_ai.api_token else "❌ No hay token")
     st.write(f"🔍 DEBUG: Available: {hf_ai.available}")
 
     proveedor_options = []
-    if groq_ai.client:
+    if groq_ai.api_token:
         proveedor_options.append("🦙 Groq (Llama 3.1)")
     if hf_ai.available:
         proveedor_options.append("🤗 HuggingFace (Llama 3.2)")
