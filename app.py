@@ -501,10 +501,10 @@ class GroqAnalyzer:
         return bool(self.api_token)
 
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-    """Genera insights usando Groq o estadísticas como fallback."""
-    if self.api_token:
-        return self._groq_analysis(df_analyzed, linea)
-    return self._fallback_analysis(df_analyzed, linea)
+        """Genera insights usando Groq o estadísticas como fallback."""
+        if self.api_token:
+            return self._groq_analysis(df_analyzed, linea)
+        return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
     """Análisis usando Groq."""
