@@ -1730,7 +1730,7 @@ def render_tab_ai(df: pd.DataFrame):
             st.markdown(insights)
             st.session_state["generate_ia"] = False
 
-    groq_configured = groq_ai.client is not None
+    groq_configured = groq_ai.available
     hf_configured = hf_ai.available
     if not st.session_state.get("generate_ia", False) and not groq_configured and not hf_configured:
         st.info(
