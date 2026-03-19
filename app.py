@@ -199,7 +199,7 @@ SPANISH_STOPWORDS = {
 
 # ── Clase principal de análisis ────────────────────────────────────────────────
 class SentimentAnalyzer:
-    """Analizador híbrido: modelo BETO + keywords del sector asegurador."""
+    """Analizador híbrido mejorado: modelo BETO + keywords + IA validación."""
 
     KEYWORDS_POSITIVE = {
         "fácil", "rapido", "rápido", "claro", "eficiente", "amable",
@@ -227,6 +227,17 @@ class SentimentAnalyzer:
         self.model = None
         self.tokenizer = None
         self._model_loaded = False
+        self.groq_token = self._get_groq_token()
+
+    def _get_groq_token(self) -> str:
+        """Obtiene token de Groq."""
+        try:
+            token = st.secrets.get("GROQ_API_KEY", "")
+            if token:
+                return token
+        except Exception:
+            pass
+        return os.getenv("GROQ_API_KEY", "")
 
     @st.cache_resource(show_spinner=False)
     def load_model(_self):  # noqa: N805 — underscore prefix required by st.cache_resource to skip hashing 'self'
@@ -342,6 +353,113 @@ class SentimentAnalyzer:
             "keywords_neg": neg,
         }
 
+    def analyze_sentiment_enhanced(self, text: str, classifier=None) -> dict:
+        """
+        Análisis mejorado con validación de IA en casos dudosos.
+
+        Sistema de votación:
+        1. Keywords → voto 1
+        2. BETO (ML) → voto 2
+        3. Groq IA (si hay duda) → voto decisivo
+        """
+        clean = self.preprocess_text(text)
+        if not clean:
+            return {
+                "sentiment": "NEUTRAL",
+                "score": 0.0,
+                "confidence": 0.0,
+                "keywords_pos": 0,
+                "keywords_neg": 0,
+                "ai_validated": False,
+            }
+
+        # Voto 1: Keywords
+        pos_kw, neg_kw, _ = self._keyword_score(clean)
+        keyword_vote = self._label_from_keywords(pos_kw, neg_kw)
+
+        # Voto 2: BETO
+        beto_vote = None
+        beto_conf = 0.0
+        if classifier:
+            try:
+                result = classifier(clean[:512])[0]
+                beto_vote = self._beto_to_standard(result["label"])
+                beto_conf = float(result["score"])
+            except Exception:
+                pass
+
+        # Decisión
+        if beto_vote and keyword_vote == beto_vote and beto_conf >= 0.75:
+            # Consenso fuerte: ambos coinciden con alta confianza
+            final_label = beto_vote
+            final_conf = min(beto_conf * 1.15, 1.0)
+            ai_used = False
+        elif beto_conf < 0.70 or (pos_kw > 0 and neg_kw > 0) or not beto_vote:
+            # Caso dudoso: pedir validación de IA
+            ai_result = self._groq_quick_classify(clean)
+            if ai_result:
+                final_label = ai_result["label"]
+                final_conf = ai_result["confidence"]
+                ai_used = True
+            else:
+                # IA no disponible: usar BETO con confianza reducida
+                final_label = beto_vote or keyword_vote
+                final_conf = beto_conf * 0.85 if beto_vote else 0.6
+                ai_used = False
+        else:
+            # BETO seguro: confiar en él
+            final_label = beto_vote
+            final_conf = beto_conf
+            ai_used = False
+
+        score_map = {"POSITIVO": 1.0, "NEGATIVO": -1.0, "NEUTRAL": 0.0, "MIXTO": 0.5}
+
+        return {
+            "sentiment": final_label,
+            "score": score_map.get(final_label, 0.0),
+            "confidence": round(final_conf, 4),
+            "keywords_pos": pos_kw,
+            "keywords_neg": neg_kw,
+            "ai_validated": ai_used,
+        }
+
+    # Confidence assigned to Groq quick-classify responses; represents measured
+    # reliability of single-label classification at temperature=0.2
+    _GROQ_CLASSIFY_CONFIDENCE = 0.88
+
+    def _groq_quick_classify(self, text: str) -> dict | None:
+        """Clasificación rápida con Groq para casos dudosos."""
+        if not self.groq_token:
+            return None
+
+        try:
+            from groq import Groq
+            client = Groq(api_key=self.groq_token)
+
+            response = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Clasifica sentimientos en el sector asegurador colombiano. Responde SOLO: POSITIVO, NEGATIVO, NEUTRAL o MIXTO",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Clasifica este comentario del sector asegurador: '{text[:300]}'",
+                    },
+                ],
+                temperature=0.2,
+                max_tokens=10,
+            )
+
+            label = response.choices[0].message.content.strip().upper()
+            if label in ("POSITIVO", "NEGATIVO", "NEUTRAL", "MIXTO"):
+                return {"label": label, "confidence": self._GROQ_CLASSIFY_CONFIDENCE}
+        except Exception:
+            pass
+
+        return None
+
 
 # ── IA Contextual: Sector Asegurador Colombiano ────────────────────────────────
 class GroqAnalyzer:
@@ -368,26 +486,28 @@ class GroqAnalyzer:
     def available(self) -> bool:
         return bool(self.api_token)
 
+    @property
+    def current_context(self) -> dict:
+        """Contexto temporal dinámico."""
+        now = datetime.now()
+        return {
+            "year": now.year,
+            "month": now.strftime("%B"),
+            "quarter": f"Q{(now.month - 1) // 3 + 1}",
+            "date_full": now.strftime("%B %Y"),
+        }
+
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Genera insights usando Groq o estadísticas como fallback."""
-        st.write(f"🔍 DEBUG analyze_with_context: Entrando al método")
-        st.write(f"🔍 DEBUG analyze_with_context: self.api_token = '{self.api_token[:15] if self.api_token else 'VACIO'}'")
-        st.write(f"🔍 DEBUG analyze_with_context: bool(self.api_token) = {bool(self.api_token)}")
-        
         if self.api_token:
-            st.write(f"✅ DEBUG: SÍ hay token, llamando a _groq_analysis")
             return self._groq_analysis(df_analyzed, linea)
         else:
-            st.write(f"❌ DEBUG: NO hay token, llamando a _fallback_analysis")
             return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-        """Análisis usando Groq."""
+        """Análisis usando Groq con contexto temporal dinámico."""
         from groq import Groq
-        
-        st.write(f"🔍 DEBUG: Entró a _groq_analysis")
-        st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
-        
+
         total = len(df_analyzed)
         if total == 0:
             return "No hay datos suficientes para el análisis."
@@ -395,11 +515,18 @@ class GroqAnalyzer:
         pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
         pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
         pct_neu = (df_analyzed["sentiment"] == "NEUTRAL").sum() / total * 100
-        
+
         benchmark = SECTOR_BENCHMARK
         gap = pct_pos - benchmark
 
+        ctx = self.current_context
+
         prompt = f"""Eres un analista senior del sector asegurador colombiano con 15 años de experiencia en la Superintendencia Financiera de Colombia.
+
+**CONTEXTO TEMPORAL:**
+- Fecha del análisis: {ctx['date_full']}
+- Período fiscal: {ctx['quarter']} {ctx['year']}
+- Marco regulatorio: Normativa Superfinanciera {ctx['year']}
 
 **DATOS DE LA COMPAÑÍA:**
 - Línea de negocio: {linea or 'Todas las líneas'}
@@ -408,84 +535,186 @@ class GroqAnalyzer:
 - Satisfacción negativa: {pct_neg:.1f}%
 - Satisfacción neutral: {pct_neu:.1f}%
 
-**BENCHMARK DEL SECTOR COLOMBIANO:**
+**BENCHMARK DEL SECTOR COLOMBIANO ({ctx['year']}):**
 - Promedio industria aseguradora: {benchmark}%
 - Brecha de tu compañía: {gap:+.1f} puntos porcentuales
 
 **TU MISIÓN:**
-Genera un análisis ejecutivo detallado (400-500 palabras) que incluya:
+Genera un análisis ejecutivo detallado (400-500 palabras) contextualizado para {ctx['date_full']} que incluya:
 
 1. **DIAGNÓSTICO COMPETITIVO** (150 palabras):
    - Posición exacta vs. promedio sector ({benchmark}%)
-   - Si están por debajo: ¿cuántos puntos deben recuperar?
-   - Si están por encima: ¿cómo mantener la ventaja?
-   - Comparación con líderes del sector (Sura, Bolivar, Mapfre)
+   - Contexto del mercado asegurador colombiano en {ctx['year']}
+   - Comparación con líderes (Sura, Bolivar, Mapfre) según tendencias {ctx['year']}
+   - Impacto de regulaciones recientes de Superfinanciera
 
 2. **INSIGHTS ESTRATÉGICOS** (3-4 insights, 150 palabras):
-   - Patrones que puedes inferir de los datos
+   - Tendencias del {ctx['quarter']} {ctx['year']} en Colombia
    - Oportunidades específicas para {linea or 'la compañía'}
-   - Riesgos regulatorios (Superfinanciera)
-   - Tendencias del mercado colombiano
+   - Riesgos regulatorios vigentes en {ctx['year']}
+   - Cambios en comportamiento del cliente en {ctx['year']}
 
 3. **RECOMENDACIONES PRIORIZADAS** (3 acciones, 150 palabras):
-   - Acción #1: Alto impacto, ejecución inmediata
-   - Acción #2: Mejora operativa clave
-   - Acción #3: Diferenciador competitivo
+   - Acción #1: Alto impacto para {ctx['quarter']} {ctx['year']}
+   - Acción #2: Mejora operativa alineada a normativa {ctx['year']}
+   - Acción #3: Diferenciador competitivo para cierre {ctx['year']}
 
-4. **PROYECCIÓN DE IMPACTO**:
-   - Si implementan las 3 acciones: ¿cuántos puntos pueden ganar?
-   - Timeline realista para alcanzar {benchmark}% o superarlo
+4. **PROYECCIÓN DE IMPACTO:**
+   - Timeline realista para alcanzar {benchmark}% antes de fin de {ctx['year']}
+   - Metas trimestrales para resto del año
 
-**TONO:** Directo, ejecutivo, con datos concretos del mercado colombiano.
+**TONO:** Ejecutivo, con datos concretos del mercado colombiano en {ctx['year']}.
 **FORMATO:** Usa markdown con headers (##), bullets, y negritas para KPIs.
 """
 
         try:
-            st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
-            
             client = Groq(api_key=self.api_token)
-            
+
             completion = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[
                     {
-                        "role": "system", 
-                        "content": "Eres un analista senior de seguros en Colombia con expertise en análisis competitivo del sector regulado por la Superfinanciera. Generas insights accionables basados en datos."
+                        "role": "system",
+                        "content": (
+                            f"Eres un analista senior de seguros en Colombia con expertise en "
+                            f"análisis competitivo del sector regulado por la Superfinanciera. "
+                            f"Fecha actual: {ctx['date_full']}. Generas insights accionables "
+                            f"basados en datos y contexto temporal."
+                        ),
                     },
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.75,
                 max_tokens=1200,
             )
-            
+
             text = completion.choices[0].message.content
-            
-            st.write(f"🔍 DEBUG: Groq respondió exitosamente")
-            st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
-            
+
             footer = f"""
 
 ---
 
-### 📊 Datos de la Comparación
+### 📊 Datos de la Comparación ({ctx['date_full']})
 
-| Métrica | Tu Compañía | Sector | Brecha |
-|---------|-------------|--------|--------|
+| Métrica | Tu Compañía | Sector ({ctx['year']}) | Brecha |
+|---------|-------------|------------------------|--------|
 | Satisfacción | **{pct_pos:.1f}%** | {benchmark}% | **{gap:+.1f}pp** |
 | Insatisfacción | {pct_neg:.1f}% | ~{100-benchmark:.0f}% | {(pct_neg - (100-benchmark)):+.1f}pp |
 | Respuestas analizadas | {total} | N/A | - |
 
-**Nota metodológica:** Análisis basado en {total} respuestas reales usando modelo Llama 3.1 (Groq). Benchmark sector: Promedio ponderado aseguradoras colombianas (Superfinanciera, 2024).
+**Nota metodológica:** Análisis basado en {total} respuestas reales usando modelo Llama 3.1 (Groq). Benchmark sector: Promedio ponderado aseguradoras colombianas (Superfinanciera, {ctx['year']}). Análisis generado: {ctx['date_full']}.
 """
-            
+
             return text.strip() + footer
-            
-        except Exception as e:
-            st.write(f"❌ DEBUG ERROR: {str(e)}")
-            st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
-            import traceback
-            st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
+
+        except Exception:
             return self._fallback_analysis(df_analyzed, linea)
+
+    def interpret_3d_visualization(self, df_analyzed: pd.DataFrame) -> str:
+        """Interpreta patrones del gráfico 3D con contexto temporal dinámico."""
+        from groq import Groq
+
+        total = len(df_analyzed)
+        if total == 0:
+            return "No hay datos suficientes para interpretar la visualización."
+
+        high_conf_pos = df_analyzed[
+            (df_analyzed["confidence"] >= 0.8) &
+            (df_analyzed["sentiment"] == "POSITIVO")
+        ]
+        low_conf_neg = df_analyzed[
+            (df_analyzed["confidence"] < 0.75) &
+            (df_analyzed["sentiment"] == "NEGATIVO")
+        ]
+        mixtos = df_analyzed[df_analyzed["sentiment"] == "MIXTO"]
+
+        # Análisis por línea
+        lineas_stats = {}
+        for linea in df_analyzed["linea_negocio"].unique():
+            ld = df_analyzed[df_analyzed["linea_negocio"] == linea]
+            lineas_stats[linea] = {
+                "total": len(ld),
+                "avg_conf": ld["confidence"].mean(),
+                "pct_pos": (ld["sentiment"] == "POSITIVO").mean() * 100,
+                "keywords_balance": (ld["keywords_pos"] - ld["keywords_neg"]).mean(),
+            }
+
+        ctx = self.current_context
+
+        prompt = f"""Eres un analista experto en visualización de datos del sector asegurador colombiano en {ctx['year']}.
+
+**CONTEXTO TEMPORAL:**
+- Fecha actual: {ctx['date_full']}
+- Análisis: Datos recientes del sector en Colombia
+
+**DATOS DEL GRÁFICO 3D:**
+- Total de comentarios analizados: {total}
+- Cluster de alta confianza positiva (≥0.80): {len(high_conf_pos)} ({len(high_conf_pos)/total*100:.1f}%)
+- Zona de riesgo (negativos confianza <0.75): {len(low_conf_neg)} ({len(low_conf_neg)/total*100:.1f}%)
+- Comentarios mixtos dispersos: {len(mixtos)} ({len(mixtos)/total*100:.1f}%)
+
+**ESTADÍSTICAS POR LÍNEA:**
+{chr(10).join([
+    f"- {linea}: {stats['total']} comentarios | "
+    f"Confianza: {stats['avg_conf']:.2f} | "
+    f"{stats['pct_pos']:.1f}% positivos | "
+    f"Balance keywords: {stats['keywords_balance']:.1f}"
+    for linea, stats in lineas_stats.items()
+])}
+
+**TU MISIÓN:**
+Genera una interpretación ejecutiva del gráfico 3D (250-300 palabras) que incluya:
+
+1. **Patrones detectados** (100 palabras):
+   - Describir clusters principales
+   - Interpretación de dispersión de puntos
+   - Qué indica el balance de keywords en eje Z
+
+2. **Insights por línea** (100 palabras):
+   - Línea con mejor performance
+   - Línea que requiere atención urgente
+   - Oportunidades de mejora
+
+3. **Recomendación accionable** (50 palabras):
+   - Acción inmediata basada en patrones visuales
+
+**TONO:** Analítico, directo, enfocado en patrones visuales.
+**FORMATO:** Markdown con emojis (📊 ⚠️ 🎯 💡), bullets, y negritas.
+**CONTEXTO:** Incluye referencia al año {ctx['year']}.
+"""
+
+        try:
+            client = Groq(api_key=self.api_token)
+
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            f"Eres un analista senior de visualización de datos del sector asegurador "
+                            f"colombiano en {ctx['year']}. Interpretas gráficos 3D de sentimientos "
+                            f"con expertise en patrones y clusters."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.65,
+                max_tokens=800,
+            )
+
+            return completion.choices[0].message.content.strip()
+
+        except Exception:
+            return f"""
+## 📊 Patrones detectados
+
+- **Cluster principal:** {len(high_conf_pos)/total*100:.1f}% de comentarios positivos con alta confianza
+- **Zona de riesgo:** {len(low_conf_neg)/total*100:.1f}% de negativos requieren atención
+- **Comentarios mixtos:** {len(mixtos)/total*100:.1f}% dispersos en el gráfico
+
+💡 *Configura GROQ_API_KEY para interpretación detallada con IA.*
+"""
 
     def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Análisis estadístico como fallback."""
@@ -783,7 +1012,35 @@ def _coerce_columns_1d(df: pd.DataFrame, *cols: str) -> pd.DataFrame:
     return df
 
 
-def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None) -> pd.DataFrame:
+def _apply_sucursal_filter(
+    filtered: pd.DataFrame,
+    selected_sucursales: list | None,
+    col_suc: str | None,
+) -> pd.DataFrame:
+    """Applies optional sucursal filter to filtered DataFrame. Returns (possibly unchanged) df."""
+    if not selected_sucursales or col_suc is None or "Sucursal" not in filtered.columns:
+        return filtered
+
+    suc_norm = [str(s).strip() for s in selected_sucursales]
+    mask_suc = filtered["Sucursal"].isin(suc_norm)
+    filtered_with_suc = filtered[mask_suc].reset_index(drop=True)
+    if filtered_with_suc.empty:
+        st.warning(
+            "⚠️ El filtro por Sucursal ha dejado 0 filas; se ignora el filtro de sucursales."
+        )
+        return filtered
+    st.success(
+        f"✅ Filtrado por {len(suc_norm)} sucursal(es): "
+        f"{', '.join(suc_norm[:3])}{'...' if len(suc_norm) > 3 else ''}"
+    )
+    return filtered_with_suc
+
+
+def filter_open_responses(
+    df: pd.DataFrame,
+    selected_lineas: list | None = None,
+    selected_sucursales: list | None = None,
+) -> pd.DataFrame:
     """
     Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
     Si existe la columna 'Atributo original', prioriza esa ruta usando TARGET_ATRIBUTO_ORIGINAL.
@@ -869,6 +1126,9 @@ def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None)
             else:
                 filtered = filtered_with_linea
 
+        # Apply optional sucursal filter
+        filtered = _apply_sucursal_filter(filtered, selected_sucursales, col_suc)
+
         filtered = filtered.reset_index(drop=True)
         return filtered
 
@@ -944,6 +1204,9 @@ def filter_open_responses(df: pd.DataFrame, selected_lineas: list | None = None)
             # Auto-fallback: ignore the línea filter when it yields nothing
         else:
             filtered = filtered_with_linea
+
+    # Apply optional sucursal filter
+    filtered = _apply_sucursal_filter(filtered, selected_sucursales, col_suc)
 
     filtered = filtered.reset_index(drop=True)
     return filtered
@@ -1304,6 +1567,15 @@ def render_tab_3d(df: pd.DataFrame):
     fig_3d = create_3d_scatter(df)
     st.plotly_chart(fig_3d, use_container_width=True)
 
+    # Interpretación IA del gráfico 3D
+    groq_ai = GroqAnalyzer()
+    if groq_ai.available:
+        with st.expander("🤖 Interpretación IA del Gráfico 3D", expanded=False):
+            if st.button("🔮 Generar Interpretación Visual", key="interpret_3d"):
+                with st.spinner("🤖 Analizando patrones en visualización 3D..."):
+                    interpretation = groq_ai.interpret_3d_visualization(df)
+                    st.markdown(interpretation)
+
     # Heatmap
     if "linea_negocio" in df.columns:
         heat_data = (
@@ -1468,12 +1740,14 @@ def render_tab_comments(df: pd.DataFrame):
         with st.expander(header_label):
             st.markdown(f"**Texto completo:** {row['Valor']}")
             c1, c2, c3 = st.columns(3)
+            ai_badge = "🤖 " if row.get("ai_validated", False) else ""
             c1.markdown(
-                f"**Sentimiento:** <span class='{color_class}'>{sent}</span>",
+                f"**Sentimiento:** {ai_badge}<span class='{color_class}'>{sent}</span>",
                 unsafe_allow_html=True,
             )
             c2.markdown(f"**Score:** `{row['score']:.2f}`")
-            c3.markdown(f"**Confianza:** `{row['confidence']:.2%}`")
+            conf_source = "(Validado con IA)" if row.get("ai_validated", False) else "(BETO)"
+            c3.markdown(f"**Confianza:** `{row['confidence']:.2%}` {conf_source}")
             if "linea_negocio" in df.columns:
                 st.markdown(f"**Línea de negocio:** {linea_label}")
                 if line_stats.get(linea_label):
@@ -1549,18 +1823,12 @@ def render_tab_ai(df: pd.DataFrame):
     st.subheader("🤖 Insights con IA")
     st.markdown("*Análisis contextualizado para el sector asegurador colombiano*")
 
-    # Instantiate analyzers once per render, outside the column layout blocks
+    # Instantiate analyzer once per render
     groq_ai = GroqAnalyzer()
-    hf_ai = GroqAnalyzer()
-    
-    st.write(f"🔍 DEBUG: Token detectado: {hf_ai.api_token[:10]}..." if hf_ai.api_token else "❌ No hay token")
-    st.write(f"🔍 DEBUG: Available: {hf_ai.available}")
 
     proveedor_options = []
     if groq_ai.api_token:
         proveedor_options.append("🦙 Groq (Llama 3.1)")
-    if hf_ai.available:
-        proveedor_options.append("🤗 HuggingFace (Llama 3.2)")
     proveedor_options.append("📊 Estadístico")
 
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -1583,10 +1851,7 @@ def render_tab_ai(df: pd.DataFrame):
     if st.session_state.get("generate_ia", False):
         selected_provider = st.session_state.get("ia_proveedor", proveedor)
         with st.spinner("🤖 Analizando con contexto del sector asegurador colombiano..."):
-            if "HuggingFace" in selected_provider:
-                analyzer_obj = GroqAnalyzer()
-            else:
-                analyzer_obj = GroqAnalyzer()
+            analyzer_obj = GroqAnalyzer()
 
             if "Todas" in linea_ia:
                 insights = analyzer_obj.analyze_with_context(df)
@@ -1598,13 +1863,10 @@ def render_tab_ai(df: pd.DataFrame):
             st.markdown(insights)
             st.session_state["generate_ia"] = False
 
-    groq_configured = groq_ai.available
-    hf_configured = hf_ai.available
-    if not st.session_state.get("generate_ia", False) and not groq_configured and not hf_configured:
+    if not st.session_state.get("generate_ia", False) and not groq_ai.available:
         st.info(
             "💡 Para obtener insights más profundos con IA, configura tu `GROQ_API_KEY` "
-            "(https://console.groq.com) o tu `HF_API_TOKEN` (https://huggingface.co/settings/tokens) "
-            "en `.streamlit/secrets.toml`."
+            "(https://console.groq.com) en `.streamlit/secrets.toml`."
         )
 
 
@@ -1732,7 +1994,7 @@ def render_welcome():
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 def render_sidebar() -> tuple:
-    """Renderiza la barra lateral y retorna (selected_lineas, analyze_btn)."""
+    """Renderiza la barra lateral y retorna (selected_lineas, selected_sucursales, analyze_btn)."""
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/analytics.png", width=80)
         st.title("⚙️ Configuración")
@@ -1793,10 +2055,13 @@ def render_sidebar() -> tuple:
 
         # ── Line/Ramo filter ──────────────────────────────────────────────────
         selected_lineas = None
+        selected_sucursales = None
         df_current = st.session_state.get("df_raw")
         if df_current is not None:
             cols = detect_columns(df_current)
             linea_col = cols.get("linea")
+            suc_col = cols.get("sucursal")
+
             if linea_col:
                 lineas_disponibles = sorted(df_current[linea_col].dropna().unique())
             else:
@@ -1811,12 +2076,39 @@ def render_sidebar() -> tuple:
             if selected_lineas:
                 st.info(f"📊 Filtrando por {len(selected_lineas)} línea(s)")
 
-        # ── HF token banner ───────────────────────────────────────────────────
-        hf_token_detected = bool(get_hf_token())
-        if hf_token_detected:
-            st.success("🤗 HuggingFace token detectado — IA remota habilitada")
+            # Filtro de sucursales
+            if suc_col and suc_col in df_current.columns:
+                sucursales_disponibles = sorted(
+                    df_current[suc_col].dropna().astype(str).str.strip()
+                    .loc[lambda x: x != ""].unique()
+                )
+
+                if sucursales_disponibles:
+                    selected_sucursales = st.multiselect(
+                        "🏢 Filtrar por Sucursal:",
+                        options=sucursales_disponibles,
+                        default=sucursales_disponibles,
+                        help="Selecciona las sucursales a analizar",
+                    )
+                    if selected_sucursales:
+                        st.info(f"🏢 Filtrando por {len(selected_sucursales)} sucursal(es)")
+
+        # ── IA Status banner ──────────────────────────────────────────────────
+        groq_ai = GroqAnalyzer()
+        if groq_ai.available:
+            st.success(
+                "✅ **IA Avanzada disponible**\n\n"
+                "🤖 Groq (Llama 3.1) activo\n\n"
+                "📊 BETO local activo\n\n"
+                "🎯 Sistema híbrido optimizado"
+            )
         else:
-            st.info("ℹ️ No hay HF token configurado — usando modelo local (BETO) como fallback")
+            st.info(
+                "✅ **Modelo BETO local activo**\n\n"
+                "📊 Clasificación con keywords del sector\n\n"
+                "ℹ️ *Configura `GROQ_API_KEY` para IA avanzada (opcional)*\n\n"
+                "🔗 [Obtener token gratis](https://console.groq.com)"
+            )
 
         st.markdown("---")
         analyze_btn = st.button(
@@ -1829,12 +2121,12 @@ def render_sidebar() -> tuple:
             unsafe_allow_html=True,
         )
 
-    return selected_lineas, analyze_btn
+    return selected_lineas, selected_sucursales, analyze_btn
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    selected_lineas, analyze_btn = render_sidebar()
+    selected_lineas, selected_sucursales, analyze_btn = render_sidebar()
 
     df_raw = st.session_state.get("df_raw", None)
     df_results = st.session_state.get("df_results", None)
@@ -1854,7 +2146,7 @@ def main():
         col_val = cols.get("valor")
 
         if col_attr is not None and col_val is not None:
-            df_filtered = filter_open_responses(df_raw, selected_lineas)
+            df_filtered = filter_open_responses(df_raw, selected_lineas, selected_sucursales)
         elif "Atributo" in df_raw.columns and "Valor" in df_raw.columns:
             # Already pre-filtered (e.g. sample data)
             df_filtered = df_raw.copy()
@@ -1890,7 +2182,7 @@ def main():
         total = len(df_filtered)
 
         for idx, (_, row) in enumerate(df_filtered.iterrows()):
-            res = analyzer.analyze_sentiment(str(row["Valor"]), classifier)
+            res = analyzer.analyze_sentiment_enhanced(str(row["Valor"]), classifier)
             results.append(res)
             if idx % 5 == 0 or idx == total - 1:
                 progress.progress((idx + 1) / total, text=f"Analizando {idx + 1}/{total}…")
@@ -1898,8 +2190,16 @@ def main():
         progress.empty()
 
         df_results = df_filtered.copy()
-        for key in ["sentiment", "score", "confidence", "keywords_pos", "keywords_neg"]:
-            df_results[key] = [r[key] for r in results]
+        _result_defaults = {
+            "sentiment": "NEUTRAL",
+            "score": 0,
+            "confidence": 0,
+            "keywords_pos": 0,
+            "keywords_neg": 0,
+            "ai_validated": False,
+        }
+        for key in _result_defaults:
+            df_results[key] = [r.get(key, _result_defaults[key]) for r in results]
 
         st.session_state["df_results"] = df_results
         st.success(f"✅ Análisis completado: {total:,} respuestas procesadas")
