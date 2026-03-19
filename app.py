@@ -502,9 +502,16 @@ class GroqAnalyzer:
 
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Genera insights usando Groq o estadísticas como fallback."""
+        st.write(f"🔍 DEBUG analyze_with_context: Entrando al método")
+        st.write(f"🔍 DEBUG analyze_with_context: self.api_token = '{self.api_token[:15] if self.api_token else 'VACIO'}'")
+        st.write(f"🔍 DEBUG analyze_with_context: bool(self.api_token) = {bool(self.api_token)}")
+        
         if self.api_token:
+            st.write(f"✅ DEBUG: SÍ hay token, llamando a _groq_analysis")
             return self._groq_analysis(df_analyzed, linea)
-        return self._fallback_analysis(df_analyzed, linea)
+        else:
+            st.write(f"❌ DEBUG: NO hay token, llamando a _fallback_analysis")
+            return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Análisis usando Groq."""
