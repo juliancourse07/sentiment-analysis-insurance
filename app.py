@@ -507,15 +507,15 @@ class GroqAnalyzer:
         return self._fallback_analysis(df_analyzed, linea)
 
     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-    """Análisis usando Groq."""
-    from groq import Groq
+            """Análisis usando Groq."""
+            from groq import Groq
     
-    st.write(f"🔍 DEBUG: Entró a _groq_analysis")
-    st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
+            st.write(f"🔍 DEBUG: Entró a _groq_analysis")
+            st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
     
-    total = len(df_analyzed)
-    if total == 0:
-        return "No hay datos suficientes para el análisis."
+            total = len(df_analyzed)
+            if total == 0:
+                return "No hay datos suficientes para el análisis."
 
     pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
     pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
