@@ -474,14 +474,13 @@ Formato de respuesta:
 """
 
 
-# ── IA Contextual: HuggingFace (Llama 3.2) ────────────────────────────────────
-class HuggingFaceAnalyzer:
-    """
-    Análisis contextual usando HuggingFace Inference API (Llama-3.2-3B-Instruct).
-    El token se lee desde st.secrets['HF_API_TOKEN'] o la variable de entorno HF_API_TOKEN.
-    """
+# ─── IA Contextual: Groq (Llama 3.2) ───────────────────────────────────────────
 
-    API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+class GroqAnalyzer:
+    """
+    Análisis contextual usando Groq Inference API (Llama-3.1-8B-Instant).
+    El token se lee desde st.secrets['GROQ_API_KEY'] o la variable de entorno GROQ_API_KEY.
+    """
 
     def __init__(self):
         pass  # No almacenamos el token en __init__ para permitir recarga dinámica
@@ -490,80 +489,72 @@ class HuggingFaceAnalyzer:
     def api_token(self) -> str:
         """Lee el token dinámicamente cada vez que se accede."""
         try:
-            token = st.secrets.get("HF_API_TOKEN", "")
+            token = st.secrets.get("GROQ_API_KEY", "")
             if token:
                 return token
         except Exception:
             pass
-        return os.getenv("HF_API_TOKEN", "")
+        return os.getenv("GROQ_API_KEY", "")
 
     @property
     def available(self) -> bool:
         return bool(self.api_token)
 
     def analyze_with_context(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-        """Genera insights usando HuggingFace o estadísticas como fallback."""
-        if self.api_token:
-              return self._hf_analysis(df_analyzed, linea)
-        return self._fallback_analysis(df_analyzed, linea)
+    """Genera insights usando Groq o estadísticas como fallback."""
+    if self.api_token:
+        return self._groq_analysis(df_analyzed, linea)
+    return self._fallback_analysis(df_analyzed, linea)
 
-    def _hf_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
-        st.write(f"🔍 DEBUG: Entró a _hf_analysis")  # ← AGREGA ESTO
-        st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")  # ← Y ESTO
+    def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+    """Análisis usando Groq."""
+    from groq import Groq
+    
+    st.write(f"🔍 DEBUG: Entró a _groq_analysis")
+    st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")
+    
+    total = len(df_analyzed)
+    if total == 0:
+        return "No hay datos suficientes para el análisis."
+
+    pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
+    pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
+
+    prompt = (
+        f"Eres analista del sector asegurador colombiano (Superfinanciera).\n\n"
+        f"Datos: {total} respuestas, {pct_pos:.1f}% positivo, {pct_neg:.1f}% negativo\n"
+        f"Línea: {linea or 'Todas'}\n\n"
+        f"Da 3 insights clave y 2 recomendaciones para Colombia (max 250 palabras)."
+    )
+
+    try:
+        st.write(f"🔍 DEBUG: A punto de llamar a Groq API")
         
-        total = len(df_analyzed)
-        if total == 0:
-            return "No hay datos suficientes para el análisis."
-
-        pct_pos = (df_analyzed["sentiment"] == "POSITIVO").sum() / total * 100
-        pct_neg = (df_analyzed["sentiment"] == "NEGATIVO").sum() / total * 100
-
-        prompt = (
-            f"Eres analista del sector asegurador colombiano (Superfinanciera).\n\n"
-            f"Datos: {total} respuestas, {pct_pos:.1f}% positivo, {pct_neg:.1f}% negativo\n"
-            f"Línea: {linea or 'Todas'}\n\n"
-            f"Da 3 insights clave y 2 recomendaciones para Colombia (max 250 palabras)."
+        client = Groq(api_key=self.api_token)
+        
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "Eres un analista experto del sector asegurador colombiano."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=500,
         )
-
-        payload = {
-            "inputs": prompt,
-            "parameters": {"max_new_tokens": 500, "temperature": 0.7},
-        }
-        headers = {"Authorization": f"Bearer {self.api_token}"}
         
-        st.write(f"🔍 DEBUG: A punto de llamar a HuggingFace API")
-        st.write(f"🔍 DEBUG: URL = {self.API_URL}")
-        st.write(f"🔍 DEBUG: Headers = Bearer {self.api_token[:10]}...")
+        text = completion.choices[0].message.content
         
-        try:
-            response = requests.post(
-                self.API_URL, headers=headers, json=payload, timeout=30
-            )
-            # DEBUG: Ver código de respuesta
-            st.write(f"🔍 DEBUG HTTP: Status code = {response.status_code}")
-            st.write(f"🔍 DEBUG HTTP: Response = {response.text[:200]}")
-
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list) and data:
-                    text = data[0].get("generated_text", "")
-                    # Strip the echoed prompt from the response
-                    return text.replace(prompt, "").strip() or text.strip()
-            elif response.status_code in (401, 403):
-                return (
-                    f"⚠️ **HF token inválido o sin permisos** (HTTP "
-                    f"{response.status_code}). Revoca y genera uno nuevo en "
-                    "https://huggingface.co/settings/tokens\n\n"
-                    + self._fallback_analysis(df_analyzed, linea)
-                )
-            return self._fallback_analysis(df_analyzed, linea)
-            
-        except Exception as e:
-            st.write(f"❌ DEBUG ERROR: {str(e)}")
-            st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
-            import traceback
-            st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
-            return self._fallback_analysis(df_analyzed, linea)
+        st.write(f"🔍 DEBUG: Groq respondió exitosamente")
+        st.write(f"🔍 DEBUG: Respuesta (primeros 100 chars) = {text[:100]}")
+        
+        return text.strip()
+        
+    except Exception as e:
+        st.write(f"❌ DEBUG ERROR: {str(e)}")
+        st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
+        import traceback
+        st.write(f"❌ DEBUG TRACEBACK: {traceback.format_exc()}")
+        return self._fallback_analysis(df_analyzed, linea)
 
     def _fallback_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         total = len(df_analyzed)
@@ -1624,7 +1615,7 @@ def render_tab_ai(df: pd.DataFrame):
 
     # Instantiate analyzers once per render, outside the column layout blocks
     groq_ai = ColombianInsuranceAI()
-    hf_ai = HuggingFaceAnalyzer()
+    hf_ai = GroqAnalyzer()
     
     st.write(f"🔍 DEBUG: Token detectado: {hf_ai.api_token[:10]}..." if hf_ai.api_token else "❌ No hay token")
     st.write(f"🔍 DEBUG: Available: {hf_ai.available}")
