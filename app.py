@@ -557,6 +557,7 @@ class HuggingFaceAnalyzer:
                     + self._fallback_analysis(df_analyzed, linea)
                 )
             return self._fallback_analysis(df_analyzed, linea)
+            
         except Exception as e:
             st.write(f"❌ DEBUG ERROR: {str(e)}")
             st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
