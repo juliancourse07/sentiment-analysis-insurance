@@ -549,7 +549,7 @@ class GroqAnalyzer:
             
             return text.strip()
             
-        except Exception as e:
+    except Exception as e:
             st.write(f"❌ DEBUG ERROR: {str(e)}")
             st.write(f"❌ DEBUG ERROR Type: {type(e).__name__}")
             import traceback
