@@ -508,6 +508,9 @@ class HuggingFaceAnalyzer:
         return self._fallback_analysis(df_analyzed, linea)
 
     def _hf_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+        st.write(f"🔍 DEBUG: Entró a _hf_analysis")  # ← AGREGA ESTO
+        st.write(f"🔍 DEBUG: api_token dentro = {self.api_token[:10] if self.api_token else 'VACIO'}")  # ← Y ESTO
+        
         total = len(df_analyzed)
         if total == 0:
             return "No hay datos suficientes para el análisis."
