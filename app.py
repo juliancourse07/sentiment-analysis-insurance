@@ -513,7 +513,7 @@ class GroqAnalyzer:
             st.write(f"❌ DEBUG: NO hay token, llamando a _fallback_analysis")
             return self._fallback_analysis(df_analyzed, linea)
 
-        def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
+     def _groq_analysis(self, df_analyzed: pd.DataFrame, linea: str = None) -> str:
         """Análisis usando Groq."""
         from groq import Groq
         
