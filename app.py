@@ -136,6 +136,7 @@ st.markdown(
 # ── Constantes ─────────────────────────────────────────────────────────────────
 SHEET_ID = "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE"
 SHEET_GID = "1532105479"
+SHEET_GID_INTERMEDIARIOS = "485760457"
 GOOGLE_SHEETS_EXPORT_URL = (
     f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 )
@@ -521,7 +522,55 @@ class GroqAnalyzer:
 
         ctx = self.current_context
 
-        prompt = f"""Eres un analista senior del sector asegurador colombiano con 15 años de experiencia en la Superintendencia Financiera de Colombia.
+        # Detectar modo desde session_state
+        modo = st.session_state.get("modo_actual", "👥 Clientes")
+        es_intermediarios = "Intermediarios" in modo
+
+        if es_intermediarios:
+            prompt = f"""Eres un analista senior de canales de distribución en seguros con 15 años de experiencia.
+
+**CONTEXTO TEMPORAL:**
+- Fecha del análisis: {ctx['date_full']}
+- Período fiscal: {ctx['quarter']} {ctx['year']}
+
+**DATOS DE INTERMEDIARIOS:**
+- Línea de negocio: {linea or 'Todas las líneas'}
+- Total de respuestas analizadas: {total}
+- Satisfacción positiva: {pct_pos:.1f}%
+- Satisfacción negativa: {pct_neg:.1f}%
+- Satisfacción neutral: {pct_neu:.1f}%
+
+**TU MISIÓN:**
+Genera un análisis ejecutivo detallado (400-500 palabras) para {ctx['date_full']} que incluya:
+
+1. **SENTIMIENTO DE INTERMEDIARIOS** (150 palabras):
+   - Nivel de satisfacción con la compañía aseguradora
+   - Comparación con percepción de otras aseguradoras mencionadas
+   - Fortalezas destacadas por los intermediarios
+   - Análisis de expectativas vs realidad
+
+2. **LÍNEAS DE NEGOCIO** (150 palabras):
+   - Rendimiento por línea según feedback
+   - Productos con mejor/peor percepción
+   - Oportunidades de mejora específicas
+   - Comparación entre líneas de negocio
+
+3. **COMPARACIÓN COMPETITIVA** (100 palabras):
+   - Aseguradoras competidoras mencionadas
+   - Ventajas competitivas percibidas
+   - Áreas donde la competencia supera expectativas
+   - Diferenciadores clave
+
+4. **RECOMENDACIONES B2B** (100 palabras):
+   - 3 acciones prioritarias para fortalecer relación con intermediarios
+   - Mejoras en productos/procesos mencionadas
+   - Estrategias de retención y fidelización de canal
+
+**TONO:** Estratégico, enfocado en relaciones B2B.
+**FORMATO:** Usa markdown con headers (##), bullets, y negritas para KPIs.
+"""
+        else:
+            prompt = f"""Eres un analista senior del sector asegurador colombiano con 15 años de experiencia en la Superintendencia Financiera de Colombia.
 
 **CONTEXTO TEMPORAL:**
 - Fecha del análisis: {ctx['date_full']}
@@ -923,11 +972,15 @@ def analyze_texts(texts: list[str]) -> list[dict]:
 
 
 # ── Helpers de datos ───────────────────────────────────────────────────────────
-@st.cache_data(ttl=300, show_spinner=False)
-def load_clientes_sheet() -> pd.DataFrame | None:
-    """Carga automática desde Google Sheets pestaña CLIENTES (cache 5 min)."""
+@st.cache_data(ttl=600, show_spinner=False)
+def load_clientes_sheet(modo="Clientes") -> pd.DataFrame | None:
+    """Carga automática desde Google Sheets según modo (cache 10 min)."""
+    # Determinar GID según modo
+    gid = SHEET_GID if "Clientes" in modo else SHEET_GID_INTERMEDIARIOS
+    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
+
     try:
-        df = pd.read_csv(GOOGLE_SHEETS_EXPORT_URL)
+        df = pd.read_csv(url)
         return df
     except Exception as exc:
         st.sidebar.error(f"❌ Error al cargar automáticamente: {exc}")
@@ -1042,174 +1095,58 @@ def filter_open_responses(
     selected_sucursales: list | None = None,
 ) -> pd.DataFrame:
     """
-    Filtra el DataFrame para quedarse sólo con los atributos de respuestas abiertas.
-    Si existe la columna 'Atributo original', prioriza esa ruta usando TARGET_ATRIBUTO_ORIGINAL.
-    De lo contrario, usa búsqueda flexible con regex (.str.contains) para manejar variaciones
-    de texto, incluyendo saltos de línea, espacios múltiples y números al final.
+    Filtra el DataFrame manteniendo solo filas con valores no vacíos.
+    Asigna columnas normalizadas de línea de negocio, sucursal y fecha,
+    y aplica los filtros opcionales por línea y sucursal.
     """
     cols = detect_columns(df)
-    col_attr_original = cols["atributo_original"]
-    col_attr = cols["atributo"]
     col_val = cols["valor"]
     col_linea = cols["linea"]
     col_suc = cols["sucursal"]
 
-    # ── Priority path: "Atributo original" column ────────────────────────────
-    if col_attr_original is not None:
-        mask = df[col_attr_original].astype(str).str.strip().isin(TARGET_ATRIBUTO_ORIGINAL)
-
-        # Determine response column: prefer literal 'Valor', then detected, then fallback
-        if "Valor" in df.columns and "Valor" != col_attr_original:
-            resp_col = "Valor"
-        elif col_val is not None and col_val != col_attr_original:
-            resp_col = col_val
-        elif len(df.columns) > 1:
-            resp_col = df.columns[1]
-        else:
-            resp_col = df.columns[0]
-
-        filtered = df[mask].copy()
-        # Rename only if source and target names differ to avoid duplicate columns
-        rename_map = {}
-        if col_attr_original != "Atributo":
-            rename_map[col_attr_original] = "Atributo"
-        if resp_col != "Valor":
-            rename_map[resp_col] = "Valor"
-        if rename_map:
-            filtered = filtered.rename(columns=rename_map)
-        # Remove any accidental duplicate columns (keep first occurrence)
-        filtered = filtered.loc[:, ~filtered.columns.duplicated(keep="first")]
-        filtered = filtered[
-            filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")
-        ]
-
-        # Ensure key columns are 1-D strings to prevent groupby errors
-        filtered = _coerce_columns_1d(filtered, "Atributo", "Valor")
-
-        # Map linea_negocio from detected linea column or fallback 'General'
-        if col_linea is not None and col_linea in filtered.columns:
-            filtered["linea_negocio"] = filtered[col_linea].fillna("General").astype(str).str.strip()
-        else:
-            filtered["linea_negocio"] = "General"
-
-        # Map Sucursal from detected sucursal column
-        if col_suc is not None and col_suc in filtered.columns:
-            filtered["Sucursal"] = filtered[col_suc].fillna("").astype(str).str.strip()
-        else:
-            filtered["Sucursal"] = ""
-
-        n_after_attr_filter = len(filtered)
-        st.info(
-            f"Filtrado por 'Atributo original' (columna: '{col_attr_original}'): "
-            f"{n_after_attr_filter:,} filas retenidas."
-        )
-
-        # Extract date BEFORE resetting index (indices still align with original df)
-        date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
-        if date_cols:
-            filtered["fecha"] = pd.to_datetime(
-                df.loc[filtered.index, date_cols[0]], errors="coerce"
-            )
-
-        # Apply optional línea filter with normalized comparison
-        if selected_lineas:
-            sel_norm = [str(s).strip() for s in selected_lineas]
-            mask_linea = filtered["linea_negocio"].isin(sel_norm)
-            filtered_with_linea = filtered[mask_linea].reset_index(drop=True)
-            if filtered_with_linea.empty:
-                st.warning(
-                    "⚠️ El filtro por Línea ha dejado 0 filas; se muestran resultados "
-                    "sin filtro de línea. Desactiva el filtro si deseas una selección "
-                    "más restrictiva."
-                )
-                # Auto-fallback: ignore the línea filter when it yields nothing
-            else:
-                filtered = filtered_with_linea
-
-        # Apply optional sucursal filter
-        filtered = _apply_sucursal_filter(filtered, selected_sucursales, col_suc)
-
-        filtered = filtered.reset_index(drop=True)
-        return filtered
-
-    # ── Fallback path: legacy Atributo column with regex patterns ────────────
-    # Fallback: assume first two cols are Atributo / Valor
-    if col_attr is None:
-        col_attr = df.columns[0]
+    # Detectar columna de respuesta
     if col_val is None:
         col_val = df.columns[1] if len(df.columns) > 1 else df.columns[0]
 
-    # Normalize attribute text to handle \n, multiple spaces and trailing numbers
-    attr_clean = _normalize_attribute_text(df[col_attr])
+    # Filtrar solo valores no vacíos
+    filtered = df[df[col_val].notna() & (df[col_val].astype(str).str.strip() != "")].copy()
 
-    # Build combined regex mask from patterns (applied to normalized text)
-    mask = pd.Series([False] * len(df), index=df.index)
-    for pattern, _ in ATTRIBUTE_PATTERNS:
-        mask |= attr_clean.str.contains(pattern, case=False, na=False, regex=True)
-
-    # Also include exact target attributes (backward compatibility)
-    mask |= df[col_attr].isin(TARGET_ATTRIBUTES)
-
-    filtered = df[mask].copy()
-    # Rename only if names differ to avoid duplicate columns
-    rename_map = {}
-    if col_attr != "Atributo":
-        rename_map[col_attr] = "Atributo"
+    # Renombrar columna de valor
     if col_val != "Valor":
-        rename_map[col_val] = "Valor"
-    if rename_map:
-        filtered = filtered.rename(columns=rename_map)
-    # Remove any accidental duplicate columns
-    filtered = filtered.loc[:, ~filtered.columns.duplicated(keep="first")]
-    filtered = filtered[
-        filtered["Valor"].notna() & (filtered["Valor"].astype(str).str.strip() != "")
-    ]
+        filtered = filtered.rename(columns={col_val: "Valor"})
 
-    # Ensure key columns are 1-D strings to prevent groupby errors
-    filtered = _coerce_columns_1d(filtered, "Atributo", "Valor")
+    # Coerce a 1-D strings
+    filtered = _coerce_columns_1d(filtered, "Valor")
 
-    # Assign linea_negocio label from pattern matching
-    def _get_linea(attr_text: str) -> str:
-        for pattern, label in ATTRIBUTE_PATTERNS:
-            if re.search(pattern, str(attr_text), re.IGNORECASE):
-                return label
-        return ATTRIBUTE_LABELS.get(attr_text, "General")
+    # Map linea_negocio
+    if col_linea is not None and col_linea in filtered.columns:
+        filtered["linea_negocio"] = filtered[col_linea].fillna("General").astype(str).str.strip()
+    else:
+        filtered["linea_negocio"] = "General"
 
-    filtered["linea_negocio"] = filtered["Atributo"].apply(_get_linea)
-
-    # Map Sucursal from detected sucursal column
-    if col_suc is not None:
-        filtered["Sucursal"] = df.loc[filtered.index, col_suc].fillna("").astype(str).str.strip()
+    # Map Sucursal
+    if col_suc is not None and col_suc in filtered.columns:
+        filtered["Sucursal"] = filtered[col_suc].fillna("").astype(str).str.strip()
     else:
         filtered["Sucursal"] = ""
 
-    # Extract date BEFORE resetting index (indices still align with original df)
+    # Extract date
     date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
     if date_cols:
         filtered["fecha"] = pd.to_datetime(
             df.loc[filtered.index, date_cols[0]], errors="coerce"
         )
 
-    # Apply optional línea filter with normalized comparison
+    # Apply línea filter
     if selected_lineas:
         sel_norm = [str(s).strip() for s in selected_lineas]
         mask_linea = filtered["linea_negocio"].isin(sel_norm)
-        filtered_with_linea = filtered[mask_linea].reset_index(drop=True)
-        if filtered_with_linea.empty:
-            st.warning(
-                "⚠️ El filtro por Línea ha dejado 0 filas; se muestran resultados "
-                "sin filtro de línea. Desactiva el filtro si deseas una selección "
-                "más restrictiva."
-            )
-            # Auto-fallback: ignore the línea filter when it yields nothing
-        else:
-            filtered = filtered_with_linea
+        filtered = filtered[mask_linea]
 
-    # Apply optional sucursal filter
+    # Apply sucursal filter
     filtered = _apply_sucursal_filter(filtered, selected_sucursales, col_suc)
 
-    filtered = filtered.reset_index(drop=True)
-    return filtered
+    return filtered.reset_index(drop=True)
 
 
 def generate_sample_data(n: int = 50) -> pd.DataFrame:
@@ -1999,14 +1936,32 @@ def render_sidebar() -> tuple:
         st.image("https://img.icons8.com/color/96/analytics.png", width=80)
         st.title("⚙️ Configuración")
         st.markdown("---")
+        st.subheader("🔄 Modo de Análisis")
+        modo_analisis = st.radio(
+            "Selecciona el tipo de datos:",
+            options=["👥 Clientes", "🏢 Intermediarios"],
+            index=0,
+            help="Cambia entre análisis de clientes finales o intermediarios"
+        )
 
         # ── Automatic load ────────────────────────────────────────────────────
-        if "df_raw" not in st.session_state:
-            with st.spinner("⏳ Cargando datos de Google Sheets…"):
-                auto_df = load_clientes_sheet()
+        if "df_raw" not in st.session_state or "modo_actual" not in st.session_state:
+            with st.spinner(f"⏳ Cargando datos de {modo_analisis}..."):
+                auto_df = load_clientes_sheet(modo_analisis)
             if auto_df is not None:
                 st.session_state["df_raw"] = auto_df
+                st.session_state["modo_actual"] = modo_analisis
                 st.success(f"✅ {len(auto_df):,} registros cargados automáticamente")
+
+        # Detectar cambio de modo
+        if st.session_state.get("modo_actual") != modo_analisis:
+            st.info(f"🔄 Cambiando a modo {modo_analisis}...")
+            with st.spinner("⏳ Cargando datos..."):
+                auto_df = load_clientes_sheet(modo_analisis)
+            if auto_df is not None:
+                st.session_state["df_raw"] = auto_df
+                st.session_state["modo_actual"] = modo_analisis
+                st.success(f"✅ {len(auto_df):,} registros cargados")
 
         source = st.radio(
             "Fuente de datos",
