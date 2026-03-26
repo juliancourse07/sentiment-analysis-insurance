@@ -182,6 +182,36 @@ SENTIMENT_COLORS = {
     "MIXTO": "#8b5cf6",
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# COLOR PALETTE - VERSIÓN MEJORADA CON COLORES MÁS VIVOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+SENTIMENT_COLORS_VIVID = {
+    "POSITIVO": "#10b981",   # Verde esmeralda vibrante
+    "NEGATIVO": "#ef4444",   # Rojo coral vibrante
+    "NEUTRAL": "#f59e0b",    # Ámbar dorado
+    "MIXTO": "#8b5cf6",      # Morado vibrante
+}
+
+# Template base para gráficos Plotly con tema mejorado
+PLOTLY_LAYOUT_TEMPLATE = {
+    "paper_bgcolor": "rgba(240, 244, 255, 0.95)",  # Fondo azul muy suave
+    "plot_bgcolor": "white",
+    "font": {
+        "family": "Poppins, -apple-system, BlinkMacSystemFont, sans-serif",
+        "color": "#1e3a8a",  # Azul oscuro más legible
+        "size": 13,
+    },
+    "title": {
+        "font": {"size": 18, "color": "#1e3a8a", "family": "Poppins"},
+    },
+    "hoverlabel": {
+        "bgcolor": "#1e3a8a",
+        "font": {"family": "Poppins", "size": 12, "color": "white"},
+    },
+    "colorway": ["#667eea", "#764ba2", "#f093fb", "#4facfe", "#43e97b"],
+}
+
 # Benchmark de satisfacción del sector asegurador colombiano (%)
 SECTOR_BENCHMARK = 68
 
@@ -1505,10 +1535,16 @@ def render_tab_dashboard(df: pd.DataFrame):
             x="linea_negocio",
             y="pct",
             color="sentiment",
-            color_discrete_map=SENTIMENT_COLORS,
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
             barmode="stack",
-            title="Sentimientos por Línea de Negocio (%)",
+            title="📊 Sentimientos por Línea de Negocio (%)",
             labels={"linea_negocio": "Línea", "pct": "Porcentaje (%)"},
+        )
+        fig_bar.update_layout(
+            **PLOTLY_LAYOUT_TEMPLATE,
+            height=450,
+            xaxis=dict(title="Línea de Negocio", tickfont=dict(size=13, color="#1e3a8a")),
+            yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=12, color="#475569")),
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -1528,10 +1564,16 @@ def render_tab_dashboard(df: pd.DataFrame):
             x="Sucursal",
             y="pct",
             color="sentiment",
-            color_discrete_map=SENTIMENT_COLORS,
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
             barmode="stack",
-            title="Sentimientos por Sucursal (%)",
+            title="📊 Sentimientos por Sucursal (%)",
             labels={"Sucursal": "Sucursal", "pct": "Porcentaje (%)"},
+        )
+        fig_bar_suc.update_layout(
+            **PLOTLY_LAYOUT_TEMPLATE,
+            height=450,
+            xaxis=dict(title="Sucursal", tickfont=dict(size=13, color="#1e3a8a")),
+            yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=12, color="#475569")),
         )
         st.plotly_chart(fig_bar_suc, use_container_width=True)
 
@@ -1549,10 +1591,29 @@ def render_tab_dashboard(df: pd.DataFrame):
             x="mes",
             y="n",
             color="sentiment",
-            color_discrete_map=SENTIMENT_COLORS,
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
             markers=True,
-            title="Tendencia de Sentimientos por Mes",
-            labels={"mes": "Mes", "n": "Cantidad"},
+            title="📈 Evolución de Sentimientos en el Tiempo",
+            labels={"mes": "Mes", "n": "Cantidad", "sentiment": "Sentimiento"},
+        )
+        fig_line.update_layout(
+            **PLOTLY_LAYOUT_TEMPLATE,
+            height=450,
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="center",
+                x=0.5,
+                bgcolor="rgba(255, 255, 255, 0.9)",
+                bordercolor="#cbd5e1",
+                borderwidth=1,
+            ),
+        )
+        fig_line.update_traces(
+            line=dict(width=3),
+            marker=dict(size=8, line=dict(width=2, color="white")),
         )
         st.plotly_chart(fig_line, use_container_width=True)
 
@@ -1724,36 +1785,53 @@ def render_tab_comments(df: pd.DataFrame):
     st.markdown(f"**Mostrando {len(filtered)} de {mask.sum()} comentarios filtrados**")
 
     for _, row in filtered.iterrows():
-        text_preview = str(row["Valor"])[:80] + ("…" if len(str(row["Valor"])) > 80 else "")
         sent = row["sentiment"]
         color_class = f"sentiment-{sent.lower()}"
         linea_label = str(row.get("linea_negocio", ATTRIBUTE_LABELS.get(row["Atributo"], row["Atributo"])))
         suc_label = str(row.get("Sucursal", "")).strip() if has_sucursal else ""
 
-        # Header includes Sucursal when present
-        header_label = (
-            f"[{linea_label} • {suc_label}] {text_preview}"
-            if suc_label
-            else f"[{linea_label}] {text_preview}"
-        )
+        text_preview = str(row["Valor"])[:60].strip()
+        if len(str(row["Valor"])) > 60:
+            text_preview += "..."
 
-        with st.expander(header_label):
-            st.markdown(f"**Texto completo:** {row['Valor']}")
+        with st.expander(f"💬 {sent} — {text_preview}", expanded=False):
+            st.markdown("---")
+            st.markdown("**📝 Comentario completo:**")
+            st.info(row['Valor'])
+
+            st.markdown("---")
             c1, c2, c3 = st.columns(3)
             ai_badge = "🤖 " if row.get("ai_validated", False) else ""
-            c1.markdown(
-                f"**Sentimiento:** {ai_badge}<span class='{color_class}'>{sent}</span>",
-                unsafe_allow_html=True,
-            )
-            c2.markdown(f"**Score:** `{row['score']:.2f}`")
-            conf_source = "(Validado con IA)" if row.get("ai_validated", False) else "(BETO)"
-            c3.markdown(f"**Confianza:** `{row['confidence']:.2%}` {conf_source}")
-            if "linea_negocio" in df.columns:
-                st.markdown(f"**Línea de negocio:** {linea_label}")
-                if line_stats.get(linea_label):
-                    st.caption(f"Desglose Línea — {line_stats[linea_label]}")
+
+            with c1:
+                st.metric(
+                    label="Sentimiento",
+                    value=f"{ai_badge}{sent}",
+                    help="Clasificación del sentimiento detectado"
+                )
+
+            with c2:
+                conf_source = "(IA)" if row.get("ai_validated", False) else "(BETO)"
+                st.metric(
+                    label="Confianza",
+                    value=f"{row['confidence']:.1%}",
+                    help=f"Nivel de certeza del modelo {conf_source}"
+                )
+
+            with c3:
+                linea_valid = linea_label and linea_label not in ("nan", "None", "")
+                linea_display = linea_label if linea_valid else "General"
+                st.metric(
+                    label="Línea",
+                    value=linea_display,
+                    help="Línea de negocio asociada"
+                )
+
+            if line_stats.get(linea_label):
+                st.caption(f"Desglose Línea — {line_stats[linea_label]}")
+
             if suc_label:
-                st.markdown(f"**Sucursal:** {suc_label}")
+                st.markdown(f"**🏢 Sucursal:** {suc_label}")
                 if suc_stats.get(suc_label):
                     st.caption(f"Desglose Sucursal — {suc_stats[suc_label]}")
 
@@ -1801,20 +1879,42 @@ def render_tab_keywords(df: pd.DataFrame):
     top20 = word_freq[:20]
     words_list = [w[0] for w in top20]
     freqs = [w[1] for w in top20]
+    filtro_sent_str = sent_filter if sent_filter != "Todos" else "Todos los sentimientos"
 
-    fig_bar = go.Figure(go.Bar(
-        y=words_list[::-1],
-        x=freqs[::-1],
+    df_top20 = {"keyword": words_list[::-1], "count": freqs[::-1]}
+
+    fig_bar = px.bar(
+        df_top20,
+        x="count",
+        y="keyword",
         orientation="h",
-        marker_color=SENTIMENT_COLORS.get(sent_filter, "#667eea")
-        if sent_filter != "Todos"
-        else "#667eea",
-    ))
+        color="count",
+        color_continuous_scale=[
+            [0, "#dbeafe"],      # Azul muy claro
+            [0.5, "#60a5fa"],    # Azul medio vibrante
+            [1, "#1e40af"],      # Azul oscuro
+        ],
+        title=f"🔑 Top 20 Palabras Clave - {filtro_sent_str}",
+        labels={"count": "Frecuencia", "keyword": "Palabra"},
+    )
     fig_bar.update_layout(
-        title="Top 20 Palabras más Frecuentes",
-        xaxis_title="Frecuencia",
-        yaxis_title="Palabra",
-        height=500,
+        **PLOTLY_LAYOUT_TEMPLATE,
+        height=600,
+        showlegend=False,
+        xaxis=dict(
+            title="Frecuencia de Aparición",
+            tickfont=dict(size=12, color="#475569"),
+        ),
+        yaxis=dict(
+            title="",
+            tickfont=dict(size=12, color="#1e3a8a", family="Poppins"),
+        ),
+    )
+    fig_bar.update_traces(
+        texttemplate="%{x:,}",
+        textposition="outside",
+        textfont=dict(size=12, color="#1e3a8a", family="Poppins"),
+        marker=dict(line=dict(color="#1e3a8a", width=1)),
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -1998,6 +2098,8 @@ def render_sidebar() -> tuple:
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/analytics.png", width=80)
         st.title("⚙️ Configuración")
+        if st.button("👁️ Ocultar/Mostrar Panel", key="toggle_sidebar", help="Oculta o muestra el panel lateral de filtros"):
+            pass
         st.markdown("---")
 
         # ── Automatic load ────────────────────────────────────────────────────
@@ -2010,7 +2112,7 @@ def render_sidebar() -> tuple:
 
         source = st.radio(
             "Fuente de datos",
-            ["🔗 Google Sheets", "📂 Subir CSV", "🧪 Datos de ejemplo"],
+            ["🔗 Google Sheets", "🧪 Datos de ejemplo"],
             index=0,
         )
 
@@ -2034,16 +2136,6 @@ def render_sidebar() -> tuple:
                     st.session_state["df_raw"] = df_raw
                 except Exception as exc:
                     st.error(f"❌ Error al cargar: {exc}")
-
-        elif source == "📂 Subir CSV":
-            uploaded = st.file_uploader("Subir archivo CSV", type=["csv"])
-            if uploaded is not None:
-                try:
-                    df_raw = pd.read_csv(uploaded, encoding="utf-8-sig")
-                    st.success(f"✅ {len(df_raw):,} filas cargadas")
-                    st.session_state["df_raw"] = df_raw
-                except Exception as exc:
-                    st.error(f"❌ Error: {exc}")
 
         else:  # Datos de ejemplo
             if st.button("🧪 Generar datos de ejemplo"):
