@@ -394,7 +394,7 @@ class SentimentAnalyzer:
             final_label = beto_vote
             final_conf = min(beto_conf * 1.15, 1.0)
             ai_used = False
-        elif beto_conf < 0.70 or (pos_kw > 0 and neg_kw > 0) or not beto_vote:
+        elif beto_conf < 0.65 or (pos_kw > 0 and neg_kw > 0) or not beto_vote:
             # Caso dudoso: pedir validación de IA
             ai_result = self._groq_quick_classify(clean)
             if ai_result:
@@ -923,9 +923,9 @@ def analyze_texts(texts: list[str]) -> list[dict]:
 
 
 # ── Helpers de datos ───────────────────────────────────────────────────────────
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)  # 10 minutos
 def load_clientes_sheet() -> pd.DataFrame | None:
-    """Carga automática desde Google Sheets pestaña CLIENTES (cache 5 min)."""
+    """Carga automática desde Google Sheets con cache de 10 minutos."""
     try:
         df = pd.read_csv(GOOGLE_SHEETS_EXPORT_URL)
         return df
@@ -1758,6 +1758,19 @@ def render_tab_comments(df: pd.DataFrame):
                     st.caption(f"Desglose Sucursal — {suc_stats[suc_label]}")
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def extract_keywords(df: pd.DataFrame, sentiment_filter: str = "Todos", top_n: int = 50) -> list:
+    """
+    Extrae palabras clave con cache de 5 minutos.
+    Mejora performance en pestañas de keywords.
+    """
+    subset = df if sentiment_filter == "Todos" else df[df["sentiment"] == sentiment_filter]
+    all_text = " ".join(subset["Valor"].dropna().astype(str).tolist()).lower()
+    words = re.findall(r"\b[a-záéíóúüñ]{3,}\b", all_text)
+    filtered_words = [w for w in words if w not in SPANISH_STOPWORDS]
+    return Counter(filtered_words).most_common(top_n)
+
+
 def render_tab_keywords(df: pd.DataFrame):
     st.subheader("☁️ Palabras Clave")
 
@@ -1766,12 +1779,7 @@ def render_tab_keywords(df: pd.DataFrame):
         options=["Todos"] + sorted(df["sentiment"].unique()),
     )
 
-    subset = df if sent_filter == "Todos" else df[df["sentiment"] == sent_filter]
-
-    all_text = " ".join(subset["Valor"].dropna().astype(str).tolist()).lower()
-    words = re.findall(r"\b[a-záéíóúüñ]{3,}\b", all_text)
-    filtered_words = [w for w in words if w not in SPANISH_STOPWORDS]
-    word_freq = Counter(filtered_words).most_common(50)
+    word_freq = extract_keywords(df, sent_filter)
 
     if not word_freq:
         st.info("No hay suficientes palabras para generar visualización.")
@@ -2115,6 +2123,45 @@ def render_sidebar() -> tuple:
             "🔍 Analizar Sentimientos", type="primary", use_container_width=True
         )
 
+        # ── Performance Metrics (si existen) ──────────────────────────────────
+        if "performance_metrics" in st.session_state:
+            st.markdown("---")
+            st.markdown("### ⚡ Métricas de Performance")
+            metrics = st.session_state["performance_metrics"]
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    "📊 Textos analizados",
+                    f"{metrics['total_analyzed']:,}",
+                    help="Total de comentarios procesados",
+                )
+                st.metric(
+                    "⏱️ Tiempo total",
+                    f"{metrics['total_time']:.1f}s",
+                    help="Tiempo de procesamiento completo",
+                )
+            with col2:
+                st.metric(
+                    "⚡ Promedio/texto",
+                    f"{metrics['avg_time_per_text']*1000:.0f}ms",
+                    help="Tiempo promedio por comentario",
+                )
+                st.metric(
+                    "💰 Ahorro IA",
+                    f"{metrics['groq_savings_pct']:.0f}%",
+                    delta=f"-{metrics['groq_calls']} llamadas",
+                    help="Reducción de llamadas a API de IA",
+                )
+            with st.expander("📈 Detalles técnicos", expanded=False):
+                beto_call_count = metrics["beto_calls"]
+                groq_call_count = metrics["groq_calls"]
+                st.json({
+                    "Llamadas BETO": beto_call_count,
+                    "Validaciones IA": groq_call_count,
+                    "Tamaño de lote": metrics["batch_size"],
+                    "Tasa validación": f"{(groq_call_count/beto_call_count*100):.1f}%" if beto_call_count > 0 else "0%",
+                })
+
         st.markdown("---")
         st.markdown(
             "<small>Modelo: BETO (finiteautomata/beto-sentiment-analysis)</small>",
@@ -2177,17 +2224,52 @@ def main():
         with st.spinner("Cargando modelo de lenguaje…"):
             classifier = analyzer.load_model()
 
+        # Batch processing con métricas de performance
+        BATCH_SIZE = 50
         results = []
-        progress = st.progress(0, text="Analizando sentimientos…")
         total = len(df_filtered)
+        start_time = time.time()
+        beto_calls = 0
+        groq_calls = 0
 
-        for idx, (_, row) in enumerate(df_filtered.iterrows()):
-            res = analyzer.analyze_sentiment_enhanced(str(row["Valor"]), classifier)
-            results.append(res)
-            if idx % 5 == 0 or idx == total - 1:
-                progress.progress((idx + 1) / total, text=f"Analizando {idx + 1}/{total}…")
+        progress_container = st.container()
+        with progress_container:
+            col_p1, col_p2, col_p3 = st.columns(3)
+            with col_p1:
+                progress = st.progress(0, text="Analizando sentimientos…")
+                status_text = st.empty()
+            with col_p2:
+                metric_beto = st.empty()
+            with col_p3:
+                metric_groq = st.empty()
+
+        for batch_start in range(0, total, BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, total)
+            batch_df = df_filtered.iloc[batch_start:batch_end]
+
+            for _, row in batch_df.iterrows():
+                res = analyzer.analyze_sentiment_enhanced(str(row["Valor"]), classifier)
+                results.append(res)
+                beto_calls += 1
+                if res.get("ai_validated", False):
+                    groq_calls += 1
+
+            # Actualizar progress bar cada lote
+            progress.progress(batch_end / total, text=f"Analizando {batch_end}/{total}…")
+            status_text.text(f"📊 Procesando: {batch_end}/{total} ({batch_end/total*100:.1f}%)")
+            metric_beto.metric("🤖 Análisis BETO", f"{beto_calls}", delta=f"+{batch_end - batch_start} en lote")
+            metric_groq.metric(
+                "🔍 Validaciones IA",
+                f"{groq_calls}",
+                delta=f"Ahorradas: {beto_calls - groq_calls}",
+            )
 
         progress.empty()
+        status_text.empty()
+
+        total_time = time.time() - start_time
+        avg_time = total_time / total if total > 0 else 0
+        groq_savings = ((beto_calls - groq_calls) / beto_calls * 100) if beto_calls > 0 else 0
 
         df_results = df_filtered.copy()
         _result_defaults = {
@@ -2202,7 +2284,27 @@ def main():
             df_results[key] = [r.get(key, _result_defaults[key]) for r in results]
 
         st.session_state["df_results"] = df_results
-        st.success(f"✅ Análisis completado: {total:,} respuestas procesadas")
+        st.session_state["performance_metrics"] = {
+            "total_analyzed": total,
+            "total_time": total_time,
+            "avg_time_per_text": avg_time,
+            "beto_calls": beto_calls,
+            "groq_calls": groq_calls,
+            "groq_savings_pct": groq_savings,
+            "batch_size": BATCH_SIZE,
+        }
+
+        with progress_container:
+            st.success(f"✅ Análisis completado en {total_time:.2f}s — {total:,} respuestas procesadas")
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("⚡ Tiempo promedio", f"{avg_time*1000:.1f}ms")
+            with c2:
+                st.metric("🤖 Llamadas BETO", f"{beto_calls}")
+            with c3:
+                st.metric("💰 Ahorro IA", f"{groq_savings:.1f}%")
+            with c4:
+                st.metric("📦 Lotes procesados", f"{(total + BATCH_SIZE - 1) // BATCH_SIZE}")
 
     if df_results is not None:
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
