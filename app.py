@@ -194,6 +194,13 @@ SENTIMENT_COLORS_VIVID = {
     "MIXTO": "#8b5cf6",      # Morado vibrante
 }
 
+SENTIMENT_SCORE_MAP = {
+    "POSITIVO": 1.0,
+    "NEUTRAL": 0.0,
+    "NEGATIVO": -1.0,
+    "MIXTO": 0.5,
+}
+
 # Template base para gráficos Plotly con tema mejorado
 PLOTLY_LAYOUT_TEMPLATE = {
     "paper_bgcolor": "rgba(240, 244, 255, 0.95)",  # Fondo azul muy suave
@@ -1050,7 +1057,14 @@ def detect_columns(df: pd.DataFrame) -> dict:
             val_col = col
         # Detect line/ramo column
         if linea_col is None and ("linea" in col_low or "ramo" in col_low or "línea" in col_low):
-            linea_col = col
+            # Skip columns whose values are only SI/NO (binary flag columns)
+            unique_vals = df[col].dropna().unique()
+            non_binary = [
+                v for v in unique_vals
+                if str(v).strip().upper() not in ("SI", "NO", "N/A", "NA", "")
+            ]
+            if non_binary:
+                linea_col = col
         # Detect branch/sucursal column
         if suc_col is None and col_low in ("suc", "sucursal"):
             suc_col = col
@@ -1368,6 +1382,128 @@ def create_radar_chart(df: pd.DataFrame) -> go.Figure:
         title="Comparativa Radar por Línea de Negocio",
         height=450,
         margin=dict(t=60, b=10, l=10, r=10),
+    )
+    return fig
+
+
+# ── Keywords helpers ───────────────────────────────────────────────────────────
+def extract_keywords(text: str, top_n: int = 50, min_length: int = 4) -> list:
+    """Extrae keywords relevantes del texto filtrando stopwords y palabras cortas.
+
+    Returns:
+        list of (word, frequency) tuples sorted by frequency descending.
+    """
+    words = re.findall(rf"\b[a-záéíóúüñ]{{{min_length},}}\b", text.lower())
+    filtered = [w for w in words if w not in SPANISH_STOPWORDS]
+    return Counter(filtered).most_common(top_n)
+
+
+def _avg_sentiment_for_keyword(keyword: str, df: pd.DataFrame) -> float:
+    """Calcula el sentimiento promedio de los comentarios que contienen la keyword."""
+    mask = df["Valor"].str.contains(keyword, case=False, na=False, regex=False)
+    comments = df[mask]
+    if len(comments) == 0:
+        return 0.0
+    return comments["sentiment"].map(SENTIMENT_SCORE_MAP).mean()
+
+
+def create_bubble_chart(
+    keywords_df: pd.DataFrame,
+    df_analyzed: pd.DataFrame,
+    top_n: int = 30,
+) -> go.Figure:
+    """
+    Crea un bubble chart interactivo que relaciona:
+    - Eje X: Frecuencia de la palabra
+    - Eje Y: Sentimiento promedio asociado (-1 a +1)
+    - Tamaño: Frecuencia (proporcional, escala log)
+    - Color: Polaridad del sentimiento (verde / amarillo / rojo)
+    """
+    keywords_clean = keywords_df[keywords_df["keyword"].str.len() >= 4].head(top_n).copy()
+
+    if keywords_clean.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No hay suficientes palabras clave para visualizar",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=16, color="#64748b"),
+        )
+        return fig
+
+    keywords_clean["avg_sentiment"] = keywords_clean["keyword"].apply(
+        lambda kw: _avg_sentiment_for_keyword(kw, df_analyzed)
+    )
+
+    def _get_color(score: float) -> str:
+        if score > 0.3:
+            return "#10b981"
+        if score < -0.3:
+            return "#ef4444"
+        return "#f59e0b"
+
+    keywords_clean["color"] = keywords_clean["avg_sentiment"].apply(_get_color)
+
+    sizes = np.log1p(keywords_clean["count"]) * 15 + 10
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=keywords_clean["count"],
+        y=keywords_clean["avg_sentiment"],
+        mode="markers+text",
+        marker=dict(
+            size=sizes,
+            color=keywords_clean["color"],
+            opacity=0.7,
+            line=dict(width=2, color="white"),
+            sizemode="diameter",
+        ),
+        text=keywords_clean["keyword"],
+        textposition="middle center",
+        textfont=dict(size=10, color="white", family="Arial Black"),
+        hovertemplate=(
+            "<b>%{text}</b><br>"
+            "Frecuencia: %{x}<br>"
+            "Sentimiento: %{y:.2f}<br>"
+            "<extra></extra>"
+        ),
+        showlegend=False,
+    ))
+
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="rgba(148, 163, 184, 0.5)",
+        annotation_text="Neutral",
+        annotation_position="right",
+    )
+
+    fig.update_layout(
+        title={
+            "text": "🎯 Palabras Clave por Frecuencia y Sentimiento",
+            "x": 0.5,
+            "xanchor": "center",
+            "font": {"size": 20, "color": "#1e293b"},
+        },
+        xaxis=dict(
+            title="Frecuencia de aparición",
+            gridcolor="rgba(148, 163, 184, 0.2)",
+            showgrid=True,
+        ),
+        yaxis=dict(
+            title="Sentimiento Promedio",
+            gridcolor="rgba(148, 163, 184, 0.2)",
+            showgrid=True,
+            range=[-1.1, 1.1],
+            tickmode="array",
+            tickvals=[-1, -0.5, 0, 0.5, 1],
+            ticktext=["Muy Negativo", "Negativo", "Neutral", "Positivo", "Muy Positivo"],
+        ),
+        plot_bgcolor="rgba(248, 250, 252, 0.8)",
+        paper_bgcolor="white",
+        height=550,
+        margin=dict(t=80, b=60, l=60, r=40),
+        hovermode="closest",
     )
     return fig
 
@@ -1774,62 +1910,95 @@ def render_tab_comments(df: pd.DataFrame):
 
 
 def render_tab_keywords(df: pd.DataFrame):
-    st.subheader("☁️ Palabras Clave")
+    st.subheader("🔑 Análisis de Palabras Clave")
+
+    st.info(
+        "💡 **Bubble Chart Interactivo**: Cada burbuja representa una palabra clave. "
+        "El tamaño indica frecuencia, la posición vertical muestra el sentimiento promedio "
+        "(🟢 positivo arriba / 🔴 negativo abajo), y el color refuerza la polaridad."
+    )
+
+    # Coerce Valor to 1-D strings
+    df = _coerce_columns_1d(df, "Valor")
 
     sent_filter = st.selectbox(
-        "Filtrar nube por sentimiento",
+        "Filtrar por sentimiento",
         options=["Todos"] + sorted(df["sentiment"].unique()),
     )
 
     subset = df if sent_filter == "Todos" else df[df["sentiment"] == sent_filter]
+    all_text = " ".join(subset["Valor"].dropna().astype(str).tolist())
+    keywords = extract_keywords(all_text, top_n=50, min_length=4)
 
-    all_text = " ".join(subset["Valor"].dropna().astype(str).tolist()).lower()
-    words = re.findall(r"\b[a-záéíóúüñ]{3,}\b", all_text)
-    filtered_words = [w for w in words if w not in SPANISH_STOPWORDS]
-    word_freq = Counter(filtered_words).most_common(50)
-
-    if not word_freq:
-        st.info("No hay suficientes palabras para generar visualización.")
+    if not keywords:
+        st.warning("⚠️ No se encontraron palabras clave significativas.")
         return
 
-    try:
-        from wordcloud import WordCloud
-        import matplotlib.pyplot as plt
-
-        wc = WordCloud(
-            width=800,
-            height=400,
-            background_color="white",
-            colormap="Blues",
-            max_words=50,
-            collocations=False,
-        ).generate_from_frequencies(dict(word_freq))
-
-        fig_wc, ax = plt.subplots(figsize=(10, 5))
-        ax.imshow(wc, interpolation="bilinear")
-        ax.axis("off")
-        st.pyplot(fig_wc)
-        plt.close(fig_wc)
-    except ImportError:
-        st.info("WordCloud no disponible. Mostrando frecuencias en gráfico.")
-
-    top20 = word_freq[:20]
-    words_list = [w[0] for w in top20]
-    freqs = [w[1] for w in top20]
+    keywords_df = pd.DataFrame(keywords, columns=["keyword", "count"])
     filtro_sent_str = sent_filter if sent_filter != "Todos" else "Todos los sentimientos"
 
-    df_top20 = {"keyword": words_list[::-1], "count": freqs[::-1]}
+    # 🆕 BUBBLE CHART - Visualización principal
+    st.markdown("### 🎯 Visualización Interactiva")
+    fig_bubble = create_bubble_chart(keywords_df, df, top_n=30)
+    st.plotly_chart(fig_bubble, use_container_width=True, key="bubble_keywords")
 
+    st.markdown("---")
+
+    # WordCloud en expander colapsado
+    with st.expander("☁️ Ver WordCloud Tradicional"):
+        try:
+            from wordcloud import WordCloud
+            import matplotlib.pyplot as plt
+
+            wc = WordCloud(
+                width=800,
+                height=400,
+                background_color="white",
+                colormap="Blues",
+                max_words=50,
+                collocations=False,
+            ).generate_from_frequencies(dict(keywords))
+
+            fig_wc, ax = plt.subplots(figsize=(10, 5))
+            ax.imshow(wc, interpolation="bilinear")
+            ax.axis("off")
+            st.pyplot(fig_wc)
+            plt.close(fig_wc)
+        except ImportError:
+            st.info("WordCloud no disponible.")
+
+    st.markdown("---")
+
+    # Tabla Top 20 con columna de Sentimiento Promedio
+    st.markdown("### 📋 Top 20 Palabras Más Frecuentes")
+
+    top_20 = keywords_df.head(20).copy()
+    top_20["Sentimiento Promedio"] = top_20["keyword"].apply(
+        lambda kw: _avg_sentiment_for_keyword(kw, df)
+    ).apply(lambda x: f"+{x:.2f}" if x >= 0 else f"{x:.2f}")
+    top_20_display = top_20.copy()
+    top_20_display.columns = ["Palabra", "Frecuencia", "Sentimiento Promedio"]
+    st.dataframe(
+        sanitize_df_for_streamlit(top_20_display),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.markdown("---")
+
+    # Bar chart (mantener con paleta azul)
+    st.markdown("### 📊 Gráfico de Barras")
+    df_top20_bar = {"keyword": [w for w, _ in keywords[:20]][::-1], "count": [c for _, c in keywords[:20]][::-1]}
     fig_bar = px.bar(
-        df_top20,
+        df_top20_bar,
         x="count",
         y="keyword",
         orientation="h",
         color="count",
         color_continuous_scale=[
-            [0, "#dbeafe"],      # Azul muy claro
-            [0.5, "#60a5fa"],    # Azul medio vibrante
-            [1, "#1e40af"],      # Azul oscuro
+            [0, "#dbeafe"],
+            [0.5, "#60a5fa"],
+            [1, "#1e40af"],
         ],
         title=f"🔑 Top 20 Palabras Clave - {filtro_sent_str}",
         labels={"count": "Frecuencia", "keyword": "Palabra"},
@@ -1853,7 +2022,7 @@ def render_tab_keywords(df: pd.DataFrame):
         textfont=dict(size=12, color="#1e3a8a", family="Poppins"),
         marker=dict(line=dict(color="#1e3a8a", width=1)),
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, use_container_width=True, key="bar_keywords")
 
 
 def render_tab_ai(df: pd.DataFrame):
