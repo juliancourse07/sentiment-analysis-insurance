@@ -137,7 +137,7 @@ st.markdown(
 SHEET_ID = "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE"
 SHEET_GID = "1532105479"
 SHEET_GID_INTERMEDIARIOS = "485760457"
-SHEET_GID_GESTOR = "0"  # 🔴 Replace with the actual GID from the GESTOR sheet URL
+SHEET_GID_GESTOR = "1901315745"  # 🔴 Replace with the actual GID from the GESTOR sheet URL
 GOOGLE_SHEETS_EXPORT_URL = (
     f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 )
