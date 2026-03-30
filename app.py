@@ -137,6 +137,7 @@ st.markdown(
 SHEET_ID = "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE"
 SHEET_GID = "1532105479"
 SHEET_GID_INTERMEDIARIOS = "485760457"
+SHEET_GID_GESTOR = "0"  # 🔴 Replace with the actual GID from the GESTOR sheet URL
 GOOGLE_SHEETS_EXPORT_URL = (
     f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 )
@@ -240,25 +241,52 @@ class SentimentAnalyzer:
     """Analizador híbrido mejorado: modelo BETO + keywords + IA validación."""
 
     KEYWORDS_POSITIVE = {
+        # General
         "fácil", "rapido", "rápido", "claro", "eficiente", "amable",
         "excelente", "bueno", "satisfecho", "agil", "ágil", "simple",
         "intuitivo", "practico", "práctico", "completo", "preciso",
         "confiable", "util", "útil", "genial", "perfecto", "bien",
-        "buena", "buenos", "buenas", "facil",
+        "buena", "buenos", "buenas", "facil", "óptimo", "optimo",
+        "cómodo", "comodo", "profesional", "efectivo", "resuelto",
+        # Commercial (GESTOR)
+        "compromiso", "acuerdo", "avance", "incremento", "crecimiento",
+        "oportunidad", "éxito", "exito", "logro", "mejora", "innovación",
+        "innovacion", "productivo", "rentable", "potencial", "expansión",
+        "expansion", "fortaleza", "ventaja", "beneficio", "cumplimiento",
+        "oportuno", "recomendaría", "recomendaria",
     }
 
     KEYWORDS_NEGATIVE = {
+        # General
         "difícil", "dificil", "lento", "complicado", "confuso",
         "problema", "error", "demora", "malo", "deficiente",
         "insatisfecho", "engorroso", "complejo", "tedioso",
         "frustrante", "ineficiente", "pésimo", "pesimo", "mala",
-        "malos", "malas", "problemas", "errores",
+        "malos", "malas", "problemas", "errores", "inadecuado",
+        "insuficiente", "limitado", "obsoleto",
+        # Commercial (GESTOR)
+        "incumplimiento", "retraso", "reclamo", "queja", "cancelación",
+        "cancelacion", "pérdida", "perdida", "baja", "deserción",
+        "desercion", "conflicto", "rechazo", "fallo", "inconformidad",
+        "insatisfacción", "insatisfaccion", "obstáculo", "obstaculo",
+        "fricción", "friccion", "debilidad", "defecto", "carencia",
     }
 
     KEYWORDS_NEUTRAL = {
         "proceso", "tramite", "trámite", "documentacion", "documentación",
         "requisito", "procedimiento", "normal", "estandar", "estándar",
         "regular", "comun", "común",
+    }
+
+    INTENSIFIERS = {
+        "muy", "demasiado", "extremadamente", "súper", "super", "bastante",
+        "totalmente", "completamente", "absolutamente", "realmente",
+        "sumamente", "altamente", "increíblemente", "increiblemente",
+    }
+
+    NEGATIONS = {
+        "no", "sin", "nunca", "jamás", "jamas", "tampoco",
+        "ni", "nada", "ningún", "ningun", "ninguna", "ninguno",
     }
 
     def __init__(self):
@@ -310,14 +338,28 @@ class SentimentAnalyzer:
         return text
 
     def _keyword_score(self, text: str):
-        """Retorna (pos_count, neg_count, neu_count)."""
-        words = set(text.split())
-        pos = len(words & self.KEYWORDS_POSITIVE)
-        neg = len(words & self.KEYWORDS_NEGATIVE)
-        neu = len(words & self.KEYWORDS_NEUTRAL)
+        """Retorna (pos_count, neg_count, neu_count) con contexto de negaciones e intensificadores."""
+        words = text.split()
+        pos = 0.0
+        neg = 0.0
+        for i, word in enumerate(words):
+            has_negation = i > 0 and words[i - 1] in self.NEGATIONS
+            has_intensifier = i > 0 and words[i - 1] in self.INTENSIFIERS
+            weight = 1.5 if has_intensifier else 1.0
+            if word in self.KEYWORDS_POSITIVE:
+                if has_negation:
+                    neg += weight
+                else:
+                    pos += weight
+            elif word in self.KEYWORDS_NEGATIVE:
+                if has_negation:
+                    pos += weight
+                else:
+                    neg += weight
+        neu = len(set(words) & self.KEYWORDS_NEUTRAL)
         return pos, neg, neu
 
-    def _label_from_keywords(self, pos: int, neg: int):
+    def _label_from_keywords(self, pos: float, neg: float):
         if pos > 0 and neg > 0:
             return "MIXTO"
         if pos > neg:
@@ -427,10 +469,25 @@ class SentimentAnalyzer:
                 pass
 
         # Decisión
+        has_intensifier = any(w in self.INTENSIFIERS for w in clean.split())
         if beto_vote and keyword_vote == beto_vote and beto_conf >= 0.75:
             # Consenso fuerte: ambos coinciden con alta confianza
             final_label = beto_vote
             final_conf = min(beto_conf * 1.15, 1.0)
+            ai_used = False
+        elif beto_vote == "NEUTRAL" and (pos_kw >= 1 or neg_kw >= 1):
+            # BETO dice NEUTRAL pero keywords indican polaridad → Reclasificar
+            if pos_kw > neg_kw:
+                boost = (pos_kw - neg_kw) * 0.12
+                final_label = "POSITIVO"
+                final_conf = min(0.60 + boost + (0.05 if has_intensifier else 0.0), 0.85)
+            elif neg_kw > pos_kw:
+                boost = (neg_kw - pos_kw) * 0.12
+                final_label = "NEGATIVO"
+                final_conf = min(0.60 + boost + (0.05 if has_intensifier else 0.0), 0.85)
+            else:
+                final_label = "MIXTO"
+                final_conf = 0.60
             ai_used = False
         elif beto_conf < 0.70 or (pos_kw > 0 and neg_kw > 0) or not beto_vote:
             # Caso dudoso: pedir validación de IA
@@ -440,14 +497,23 @@ class SentimentAnalyzer:
                 final_conf = ai_result["confidence"]
                 ai_used = True
             else:
-                # IA no disponible: usar BETO con confianza reducida
-                final_label = beto_vote or keyword_vote
-                final_conf = beto_conf * 0.85 if beto_vote else 0.6
+                # IA no disponible: usar BETO con confianza reducida, pero reforzar con keywords
+                fallback = beto_vote or keyword_vote
+                if fallback == "NEUTRAL" and (pos_kw >= 2 or neg_kw >= 2):
+                    final_label = "POSITIVO" if pos_kw >= neg_kw else "NEGATIVO"
+                    final_conf = 0.65
+                else:
+                    final_label = fallback
+                    final_conf = beto_conf * 0.85 if beto_vote else 0.6
                 ai_used = False
         else:
-            # BETO seguro: confiar en él
-            final_label = beto_vote
-            final_conf = beto_conf
+            # BETO seguro: confiar en él, pero reforzar NEUTRAL con keywords
+            if beto_vote == "NEUTRAL" and has_intensifier and (pos_kw > 0 or neg_kw > 0):
+                final_label = "POSITIVO" if pos_kw >= neg_kw else "NEGATIVO"
+                final_conf = min(beto_conf * 1.05, 0.80)
+            else:
+                final_label = beto_vote
+                final_conf = beto_conf
             ai_used = False
 
         score_map = {"POSITIVO": 1.0, "NEGATIVO": -1.0, "NEUTRAL": 0.0, "MIXTO": 0.5}
@@ -1012,8 +1078,12 @@ def analyze_texts(texts: list[str]) -> list[dict]:
 @st.cache_data(ttl=600, show_spinner=False)
 def load_clientes_sheet(modo="Clientes") -> pd.DataFrame | None:
     """Carga automática desde Google Sheets según modo (cache 10 min)."""
-    # Determinar GID según modo
-    gid = SHEET_GID if "Clientes" in modo else SHEET_GID_INTERMEDIARIOS
+    if "Gestor" in modo:
+        gid = SHEET_GID_GESTOR
+    elif "Intermediarios" in modo:
+        gid = SHEET_GID_INTERMEDIARIOS
+    else:
+        gid = SHEET_GID
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
 
     try:
@@ -1078,6 +1148,135 @@ def detect_columns(df: pd.DataFrame) -> dict:
     }
 
 
+def detect_columns_gestor(df: pd.DataFrame) -> dict:
+    """
+    Detecta columnas específicas para análisis de Gestor Comercial.
+
+    Retorna dict con keys: sucursal, ubicacion, gestor, temas, compromisos, fecha.
+    """
+    sucursal_col = None
+    ubicacion_col = None
+    gestor_col = None
+    temas_col = None
+    compromisos_col = None
+    fecha_col = None
+
+    for col in df.columns:
+        col_low = col.strip().lower()
+
+        if sucursal_col is None and ("sucursal" in col_low or "agencia" in col_low):
+            sucursal_col = col
+
+        if ubicacion_col is None and ("ubicación" in col_low or "ubicacion" in col_low):
+            ubicacion_col = col
+
+        if gestor_col is None and (
+            ("nombre" in col_low and "agente" in col_low) or "gestor" in col_low
+        ):
+            gestor_col = col
+
+        if temas_col is None and "temas" in col_low and "discutido" in col_low:
+            temas_col = col
+
+        if compromisos_col is None and "compromiso" in col_low and "adquirido" in col_low:
+            compromisos_col = col
+
+        if fecha_col is None and ("fecha" in col_low or "date" in col_low):
+            fecha_col = col
+
+    return {
+        "sucursal": sucursal_col,
+        "ubicacion": ubicacion_col,
+        "gestor": gestor_col,
+        "temas": temas_col,
+        "compromisos": compromisos_col,
+        "fecha": fecha_col,
+    }
+
+
+def prepare_gestor_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepara datos de la hoja GESTOR para análisis de sentimiento.
+
+    - Combina 'Temas discutidos' + 'Compromisos adquiridos' como texto a analizar.
+    - Normaliza columnas de filtros (Sucursal, Ubicacion, Gestor).
+    - Parsea fechas con prioridad al formato MM/DD/YYYY.
+    """
+    cols = detect_columns_gestor(df)
+
+    if not cols["temas"] and not cols["compromisos"]:
+        st.error(
+            "❌ No se encontraron las columnas 'Temas discutidos' o 'Compromisos adquiridos' "
+            "en la hoja GESTOR."
+        )
+        return pd.DataFrame()
+
+    df_clean = df.copy()
+
+    temas_text = (
+        df_clean[cols["temas"]].fillna("").astype(str)
+        if cols["temas"]
+        else pd.Series([""] * len(df_clean), index=df_clean.index)
+    )
+    compromisos_text = (
+        df_clean[cols["compromisos"]].fillna("").astype(str)
+        if cols["compromisos"]
+        else pd.Series([""] * len(df_clean), index=df_clean.index)
+    )
+
+    df_clean["Valor"] = temas_text + " | COMPROMISOS: " + compromisos_text
+    df_clean = df_clean[
+        df_clean["Valor"].str.strip() != " | COMPROMISOS: "
+    ].copy()
+
+    df_clean["Sucursal"] = (
+        df_clean[cols["sucursal"]].fillna("Sin Sucursal").astype(str).str.strip()
+        if cols["sucursal"]
+        else "Sin Sucursal"
+    )
+
+    df_clean["Ubicacion"] = (
+        df_clean[cols["ubicacion"]].fillna("Sin Ubicación").astype(str).str.strip()
+        if cols["ubicacion"]
+        else "Sin Ubicación"
+    )
+
+    df_clean["Gestor"] = (
+        df_clean[cols["gestor"]].fillna("Sin Gestor").astype(str).str.strip()
+        if cols["gestor"]
+        else "Sin Gestor"
+    )
+
+    if cols["fecha"]:
+        df_clean["fecha"] = parse_fecha_column(df_clean, cols["fecha"])
+
+    df_clean["Atributo"] = "Reunión Comercial"
+    df_clean["linea_negocio"] = "N/A"
+
+    return df_clean.reset_index(drop=True)
+
+
+def filter_gestor_data(
+    df: pd.DataFrame,
+    selected_sucursales: list | None = None,
+    selected_ubicaciones: list | None = None,
+    selected_gestores: list | None = None,
+) -> pd.DataFrame:
+    """Aplica filtros opcionales específicos para el modo GESTOR."""
+    filtered = df.copy()
+
+    if selected_sucursales:
+        filtered = filtered[filtered["Sucursal"].isin(selected_sucursales)]
+
+    if selected_ubicaciones:
+        filtered = filtered[filtered["Ubicacion"].isin(selected_ubicaciones)]
+
+    if selected_gestores:
+        filtered = filtered[filtered["Gestor"].isin(selected_gestores)]
+
+    return filtered.reset_index(drop=True)
+
+
 def _normalize_attribute_text(series: pd.Series) -> pd.Series:
     """
     Normalizes attribute text to enable flexible regex matching.
@@ -1133,6 +1332,55 @@ def _apply_sucursal_filter(
     return filtered_with_suc
 
 
+def parse_fecha_column(df: pd.DataFrame, date_col: str) -> pd.Series:
+    """
+    Parsea una columna de fechas probando múltiples formatos explícitos.
+
+    Formatos soportados (en orden de prioridad):
+    - DD/MM/YYYY  (Clientes, Intermediarios)
+    - MM/DD/YYYY  (Gestor)
+    - YYYY-MM-DD  (ISO)
+    - DD-MM-YYYY
+    - YYYY/MM/DD
+
+    Las fechas futuras (> hoy + 1 día de tolerancia) se convierten a NaT.
+    """
+    raw = df[date_col].copy()
+    fecha_maxima = datetime.now() + timedelta(days=1)
+
+    formatos = [
+        "%d/%m/%Y",  # DD/MM/YYYY  (Clientes, Intermediarios)
+        "%m/%d/%Y",  # MM/DD/YYYY  (Gestor)
+        "%Y-%m-%d",  # YYYY-MM-DD  (ISO)
+        "%d-%m-%Y",  # DD-MM-YYYY
+        "%Y/%m/%d",  # YYYY/MM/DD
+    ]
+
+    best: pd.Series | None = None
+    best_valid = -1
+
+    for fmt in formatos:
+        try:
+            parsed = pd.to_datetime(raw, format=fmt, errors="coerce")
+            valid_count = parsed.notna().sum()
+            if valid_count > best_valid:
+                # Invalidate future dates
+                parsed = parsed.where(parsed <= fecha_maxima, pd.NaT)
+                valid_after = parsed.notna().sum()
+                if valid_after > best_valid:
+                    best = parsed
+                    best_valid = valid_after
+        except Exception:
+            continue
+
+    # Fallback: inferencia automática de pandas
+    if best is None or best_valid == 0:
+        best = pd.to_datetime(raw, errors="coerce", infer_datetime_format=True)
+        best = best.where(best <= fecha_maxima, pd.NaT)
+
+    return best
+
+
 def filter_open_responses(
     df: pd.DataFrame,
     selected_lineas: list | None = None,
@@ -1174,12 +1422,13 @@ def filter_open_responses(
     else:
         filtered["Sucursal"] = ""
 
-    # Extract date
+    # Extract date using robust multi-format parser
     date_cols = [c for c in df.columns if "fecha" in c.lower() or "date" in c.lower()]
     if date_cols:
-        filtered["fecha"] = pd.to_datetime(
-            df.loc[filtered.index, date_cols[0]], errors="coerce"
-        )
+        try:
+            filtered["fecha"] = parse_fecha_column(df.loc[filtered.index], date_cols[0])
+        except Exception:
+            filtered["fecha"] = pd.NaT
 
     # Apply línea filter
     if selected_lineas:
@@ -2142,6 +2391,130 @@ def render_tab_export(df: pd.DataFrame):
     st.dataframe(sanitize_df_for_streamlit(df), use_container_width=True)
 
 
+def render_gestor_dashboard(df: pd.DataFrame):
+    """Dashboard específico para análisis de Gestor Comercial."""
+    st.subheader("💼 Dashboard de Gestión Comercial")
+
+    total_reuniones = len(df)
+    gestores_unicos = df["Gestor"].nunique() if "Gestor" in df.columns else 0
+    ubicaciones_unicas = df["Ubicacion"].nunique() if "Ubicacion" in df.columns else 0
+    pct_pos = (df["sentiment"] == "POSITIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+    pct_neg = (df["sentiment"] == "NEGATIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📊 Total Reuniones", f"{total_reuniones:,}")
+    with col2:
+        st.metric("👥 Gestores Activos", gestores_unicos)
+    with col3:
+        st.metric("😊 % Reuniones Positivas", f"{pct_pos:.1f}%")
+    with col4:
+        st.metric("😞 % Reuniones Negativas", f"{pct_neg:.1f}%")
+
+    st.markdown("---")
+
+    # Ranking de Gestores
+    if "Gestor" in df.columns and "sentiment" in df.columns:
+        st.markdown("### 🏆 Ranking de Gestores por Desempeño")
+        gestor_stats = (
+            df.groupby("Gestor")["sentiment"]
+            .agg(
+                Total="count",
+                Positivo=lambda x: (x == "POSITIVO").mean() * 100,
+                Negativo=lambda x: (x == "NEGATIVO").mean() * 100,
+            )
+            .round(1)
+            .sort_values("Positivo", ascending=False)
+            .reset_index()
+        )
+        gestor_stats.columns = ["Gestor", "Total Reuniones", "% Positivo", "% Negativo"]
+        st.dataframe(
+            sanitize_df_for_streamlit(gestor_stats),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.markdown("---")
+
+    # Sentimiento por Ubicación
+    if "Ubicacion" in df.columns and "sentiment" in df.columns:
+        st.markdown("### 📍 Sentimiento por Ubicación de Visita")
+        ubicacion_pivot = (
+            df.groupby(["Ubicacion", "sentiment"])
+            .size()
+            .reset_index(name="n")
+        )
+        ubicacion_pivot["pct"] = ubicacion_pivot.groupby("Ubicacion")["n"].transform(
+            lambda x: x / x.sum() * 100
+        )
+        fig_ubicacion = px.bar(
+            ubicacion_pivot,
+            x="Ubicacion",
+            y="pct",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
+            barmode="stack",
+            title="Distribución de Sentimientos por Ubicación",
+            labels={"Ubicacion": "Ubicación", "pct": "Porcentaje (%)"},
+        )
+        fig_ubicacion.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+        st.plotly_chart(fig_ubicacion, use_container_width=True)
+
+    # Sentimiento por Sucursal
+    if "Sucursal" in df.columns and "sentiment" in df.columns:
+        st.markdown("### 🏢 Sentimiento por Sucursal/Agencia")
+        suc_pivot = (
+            df.groupby(["Sucursal", "sentiment"])
+            .size()
+            .reset_index(name="n")
+        )
+        suc_pivot["pct"] = suc_pivot.groupby("Sucursal")["n"].transform(
+            lambda x: x / x.sum() * 100
+        )
+        fig_suc = px.bar(
+            suc_pivot,
+            x="Sucursal",
+            y="pct",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
+            barmode="stack",
+            title="Distribución de Sentimientos por Sucursal",
+            labels={"Sucursal": "Sucursal/Agencia", "pct": "Porcentaje (%)"},
+        )
+        fig_suc.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+        st.plotly_chart(fig_suc, use_container_width=True)
+
+    # Evolución temporal de reuniones
+    if "fecha" in df.columns and df["fecha"].notna().any():
+        st.markdown("### 📈 Evolución Temporal de Reuniones")
+        df_time = df.dropna(subset=["fecha"]).copy()
+        df_time["mes"] = df_time["fecha"].dt.to_period("M").astype(str)
+        time_pivot = (
+            df_time.groupby(["mes", "sentiment"])
+            .size()
+            .reset_index(name="n")
+        )
+        fig_timeline = px.line(
+            time_pivot,
+            x="mes",
+            y="n",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
+            markers=True,
+            title="Tendencia de Sentimientos en Reuniones Comerciales",
+            labels={"mes": "Mes", "n": "Cantidad de Reuniones"},
+        )
+        fig_timeline.update_layout(
+            **PLOTLY_LAYOUT_TEMPLATE,
+            height=420,
+            hovermode="x unified",
+        )
+        fig_timeline.update_traces(
+            line=dict(width=3),
+            marker=dict(size=8, line=dict(width=2, color="white")),
+        )
+        st.plotly_chart(fig_timeline, use_container_width=True)
+
+
 # ── Pantalla de bienvenida ─────────────────────────────────────────────────────
 def render_welcome():
     st.markdown(
@@ -2200,7 +2573,12 @@ def render_welcome():
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 def render_sidebar() -> tuple:
-    """Renderiza la barra lateral y retorna (selected_lineas, selected_sucursales, analyze_btn)."""
+    """
+    Renderiza la barra lateral.
+
+    Retorna (selected_lineas, selected_sucursales, analyze_btn, modo_analisis,
+             selected_ubicaciones, selected_gestores).
+    """
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/analytics.png", width=80)
         st.title("⚙️ Configuración")
@@ -2210,9 +2588,9 @@ def render_sidebar() -> tuple:
         st.subheader("🔄 Modo de Análisis")
         modo_analisis = st.radio(
             "Selecciona el tipo de datos:",
-            options=["👥 Clientes", "🏢 Intermediarios"],
+            options=["👥 Clientes", "🏢 Intermediarios", "💼 Gestor Comercial"],
             index=0,
-            help="Cambia entre análisis de clientes finales o intermediarios"
+            help="Cambia entre análisis de clientes finales, intermediarios o gestor comercial"
         )
 
         # ── Automatic load ────────────────────────────────────────────────────
@@ -2220,6 +2598,8 @@ def render_sidebar() -> tuple:
             with st.spinner(f"⏳ Cargando datos de {modo_analisis}..."):
                 auto_df = load_clientes_sheet(modo_analisis)
             if auto_df is not None:
+                if "Gestor" in modo_analisis:
+                    auto_df = prepare_gestor_data(auto_df)
                 st.session_state["df_raw"] = auto_df
                 st.session_state["modo_actual"] = modo_analisis
                 st.success(f"✅ {len(auto_df):,} registros cargados automáticamente")
@@ -2230,8 +2610,11 @@ def render_sidebar() -> tuple:
             with st.spinner("⏳ Cargando datos..."):
                 auto_df = load_clientes_sheet(modo_analisis)
             if auto_df is not None:
+                if "Gestor" in modo_analisis:
+                    auto_df = prepare_gestor_data(auto_df)
                 st.session_state["df_raw"] = auto_df
                 st.session_state["modo_actual"] = modo_analisis
+                st.session_state.pop("df_results", None)
                 st.success(f"✅ {len(auto_df):,} registros cargados")
 
         source = st.radio(
@@ -2256,8 +2639,12 @@ def render_sidebar() -> tuple:
                 try:
                     with st.spinner("Descargando datos…"):
                         df_raw = load_from_google_sheets(export_url)
+                    if "Gestor" in modo_analisis:
+                        df_raw = prepare_gestor_data(df_raw)
                     st.success(f"✅ {len(df_raw):,} filas cargadas")
                     st.session_state["df_raw"] = df_raw
+                    st.session_state["modo_actual"] = modo_analisis
+                    st.session_state.pop("df_results", None)
                 except Exception as exc:
                     st.error(f"❌ Error al cargar: {exc}")
 
@@ -2266,48 +2653,93 @@ def render_sidebar() -> tuple:
                 df_raw = generate_sample_data(50)
                 st.success("✅ 50 filas de ejemplo generadas")
                 st.session_state["df_raw"] = df_raw
+                st.session_state["modo_actual"] = modo_analisis
+                st.session_state.pop("df_results", None)
 
         st.markdown("---")
 
-        # ── Line/Ramo filter ──────────────────────────────────────────────────
+        # ── Filters (mode-dependent) ──────────────────────────────────────────
         selected_lineas = None
         selected_sucursales = None
+        selected_ubicaciones = None
+        selected_gestores = None
         df_current = st.session_state.get("df_raw")
+
         if df_current is not None:
-            cols = detect_columns(df_current)
-            linea_col = cols.get("linea")
-            suc_col = cols.get("sucursal")
-
-            if linea_col:
-                lineas_disponibles = sorted(df_current[linea_col].dropna().unique())
-            else:
-                lineas_disponibles = list(ATTRIBUTE_LABELS.values())
-
-            selected_lineas = st.multiselect(
-                "🎯 Filtrar por Línea/Ramo:",
-                options=lineas_disponibles,
-                default=lineas_disponibles,
-                help="Selecciona las líneas de negocio a analizar",
-            )
-            if selected_lineas:
-                st.info(f"📊 Filtrando por {len(selected_lineas)} línea(s)")
-
-            # Filtro de sucursales
-            if suc_col and suc_col in df_current.columns:
-                sucursales_disponibles = sorted(
-                    df_current[suc_col].dropna().astype(str).str.strip()
-                    .loc[lambda x: x != ""].unique()
-                )
-
-                if sucursales_disponibles:
-                    selected_sucursales = st.multiselect(
-                        "🏢 Filtrar por Sucursal:",
-                        options=sucursales_disponibles,
-                        default=sucursales_disponibles,
-                        help="Selecciona las sucursales a analizar",
+            if "Gestor" in modo_analisis:
+                # Filtros específicos de GESTOR
+                if "Sucursal" in df_current.columns:
+                    sucursales_disponibles = sorted(
+                        df_current["Sucursal"].dropna().astype(str)
+                        .str.strip().loc[lambda x: x != ""].unique()
                     )
-                    if selected_sucursales:
-                        st.info(f"🏢 Filtrando por {len(selected_sucursales)} sucursal(es)")
+                    if sucursales_disponibles:
+                        selected_sucursales = st.multiselect(
+                            "🏢 Filtrar por Sucursal/Agencia:",
+                            options=sucursales_disponibles,
+                            default=[],
+                            help="Selecciona una o más sucursales para analizar",
+                        )
+
+                if "Ubicacion" in df_current.columns:
+                    ubicaciones_disponibles = sorted(
+                        df_current["Ubicacion"].dropna().astype(str)
+                        .str.strip().loc[lambda x: x != ""].unique()
+                    )
+                    if ubicaciones_disponibles:
+                        selected_ubicaciones = st.multiselect(
+                            "📍 Filtrar por Ubicación de Visita:",
+                            options=ubicaciones_disponibles,
+                            default=[],
+                            help="Filtra por la ubicación donde se realizó la reunión",
+                        )
+
+                if "Gestor" in df_current.columns:
+                    gestores_disponibles = sorted(
+                        df_current["Gestor"].dropna().astype(str)
+                        .str.strip().loc[lambda x: x != ""].unique()
+                    )
+                    if gestores_disponibles:
+                        selected_gestores = st.multiselect(
+                            "👤 Filtrar por Gestor:",
+                            options=gestores_disponibles,
+                            default=[],
+                            help="Analiza el desempeño de gestores específicos",
+                        )
+            else:
+                # Filtros para Clientes / Intermediarios
+                cols = detect_columns(df_current)
+                linea_col = cols.get("linea")
+                suc_col = cols.get("sucursal")
+
+                if linea_col:
+                    lineas_disponibles = sorted(df_current[linea_col].dropna().unique())
+                else:
+                    lineas_disponibles = list(ATTRIBUTE_LABELS.values())
+
+                selected_lineas = st.multiselect(
+                    "🎯 Filtrar por Línea/Ramo:",
+                    options=lineas_disponibles,
+                    default=lineas_disponibles,
+                    help="Selecciona las líneas de negocio a analizar",
+                )
+                if selected_lineas:
+                    st.info(f"📊 Filtrando por {len(selected_lineas)} línea(s)")
+
+                if suc_col and suc_col in df_current.columns:
+                    sucursales_disponibles = sorted(
+                        df_current[suc_col].dropna().astype(str).str.strip()
+                        .loc[lambda x: x != ""].unique()
+                    )
+                    if sucursales_disponibles:
+                        selected_sucursales = st.multiselect(
+                            "🏢 Filtrar por Sucursal:",
+                            options=sucursales_disponibles,
+                            default=sucursales_disponibles,
+                            help="Selecciona las sucursales a analizar",
+                        )
+                        if selected_sucursales:
+                            st.info(f"🏢 Filtrando por {len(selected_sucursales)} sucursal(es)")
 
         # ── IA Status banner ──────────────────────────────────────────────────
         groq_ai = GroqAnalyzer()
@@ -2337,15 +2769,24 @@ def render_sidebar() -> tuple:
             unsafe_allow_html=True,
         )
 
-    return selected_lineas, selected_sucursales, analyze_btn
+    return selected_lineas, selected_sucursales, analyze_btn, modo_analisis, selected_ubicaciones, selected_gestores
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    selected_lineas, selected_sucursales, analyze_btn = render_sidebar()
+    (
+        selected_lineas,
+        selected_sucursales,
+        analyze_btn,
+        modo_analisis,
+        selected_ubicaciones,
+        selected_gestores,
+    ) = render_sidebar()
 
     df_raw = st.session_state.get("df_raw", None)
     df_results = st.session_state.get("df_results", None)
+
+    is_gestor = "Gestor" in modo_analisis
 
     if df_raw is None and not analyze_btn:
         render_welcome()
@@ -2356,29 +2797,35 @@ def main():
             st.warning("⚠️ Primero carga los datos desde el panel lateral.")
             return
 
-        # Check if data already has Atributo/Valor or needs detection
-        cols = detect_columns(df_raw)
-        col_attr = cols.get("atributo")
-        col_val = cols.get("valor")
-
-        if col_attr is not None and col_val is not None:
-            df_filtered = filter_open_responses(df_raw, selected_lineas, selected_sucursales)
-        elif "Atributo" in df_raw.columns and "Valor" in df_raw.columns:
-            # Already pre-filtered (e.g. sample data)
-            df_filtered = df_raw.copy()
-            if "linea_negocio" not in df_filtered.columns:
-                df_filtered["linea_negocio"] = df_filtered["Atributo"].apply(
-                    lambda a: ATTRIBUTE_LABELS.get(a, "General")
-                )
+        if is_gestor:
+            # GESTOR: data is already prepared by prepare_gestor_data()
+            df_filtered = filter_gestor_data(
+                df_raw, selected_sucursales, selected_ubicaciones, selected_gestores
+            )
         else:
-            # Fallback for plain CSV with just a text column
-            df_filtered = df_raw.copy()
-            if "Valor" not in df_filtered.columns:
-                df_filtered["Valor"] = df_filtered.iloc[:, 0]
-            if "Atributo" not in df_filtered.columns:
-                df_filtered["Atributo"] = "General"
-            if "linea_negocio" not in df_filtered.columns:
-                df_filtered["linea_negocio"] = "General"
+            # Clientes / Intermediarios: detect and filter
+            cols = detect_columns(df_raw)
+            col_attr = cols.get("atributo")
+            col_val = cols.get("valor")
+
+            if col_attr is not None and col_val is not None:
+                df_filtered = filter_open_responses(df_raw, selected_lineas, selected_sucursales)
+            elif "Atributo" in df_raw.columns and "Valor" in df_raw.columns:
+                # Already pre-filtered (e.g. sample data)
+                df_filtered = df_raw.copy()
+                if "linea_negocio" not in df_filtered.columns:
+                    df_filtered["linea_negocio"] = df_filtered["Atributo"].apply(
+                        lambda a: ATTRIBUTE_LABELS.get(a, "General")
+                    )
+            else:
+                # Fallback for plain CSV with just a text column
+                df_filtered = df_raw.copy()
+                if "Valor" not in df_filtered.columns:
+                    df_filtered["Valor"] = df_filtered.iloc[:, 0]
+                if "Atributo" not in df_filtered.columns:
+                    df_filtered["Atributo"] = "General"
+                if "linea_negocio" not in df_filtered.columns:
+                    df_filtered["linea_negocio"] = "General"
 
         if df_filtered.empty:
             st.error(
@@ -2421,26 +2868,45 @@ def main():
         st.success(f"✅ Análisis completado: {total:,} respuestas procesadas")
 
     if df_results is not None:
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "📊 Dashboard Premium",
-            "🎯 Análisis 3D",
-            "💬 Explorador de Comentarios",
-            "☁️ Palabras Clave",
-            "🤖 Insights con IA",
-            "📥 Exportar",
-        ])
-        with tab1:
-            render_tab_dashboard(df_results)
-        with tab2:
-            render_tab_3d(df_results)
-        with tab3:
-            render_tab_comments(df_results)
-        with tab4:
-            render_tab_keywords(df_results)
-        with tab5:
-            render_tab_ai(df_results)
-        with tab6:
-            render_tab_export(df_results)
+        if is_gestor:
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                "💼 Dashboard Gestión",
+                "💬 Explorador de Comentarios",
+                "☁️ Palabras Clave",
+                "🤖 Insights con IA",
+                "📥 Exportar",
+            ])
+            with tab1:
+                render_gestor_dashboard(df_results)
+            with tab2:
+                render_tab_comments(df_results)
+            with tab3:
+                render_tab_keywords(df_results)
+            with tab4:
+                render_tab_ai(df_results)
+            with tab5:
+                render_tab_export(df_results)
+        else:
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+                "📊 Dashboard Premium",
+                "🎯 Análisis 3D",
+                "💬 Explorador de Comentarios",
+                "☁️ Palabras Clave",
+                "🤖 Insights con IA",
+                "📥 Exportar",
+            ])
+            with tab1:
+                render_tab_dashboard(df_results)
+            with tab2:
+                render_tab_3d(df_results)
+            with tab3:
+                render_tab_comments(df_results)
+            with tab4:
+                render_tab_keywords(df_results)
+            with tab5:
+                render_tab_ai(df_results)
+            with tab6:
+                render_tab_export(df_results)
     elif df_raw is not None:
         st.info("👈 Haz clic en **🔍 Analizar Sentimientos** para iniciar el análisis.")
     else:
