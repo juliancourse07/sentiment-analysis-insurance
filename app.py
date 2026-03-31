@@ -138,6 +138,8 @@ SHEET_ID = "1OUzUl5UDrZEfBSaW4afk-Nzazs7gizes3VkNfXXuKmE"
 SHEET_GID = "1532105479"
 SHEET_GID_INTERMEDIARIOS = "485760457"
 SHEET_GID_GESTOR = "1901315745"  # 🔴 Replace with the actual GID from the GESTOR sheet URL
+SHEET_GID_GESTOR_PER = "506058792"
+SHEET_GID_INTERMEDIARIOS_PER = "819615849"
 GOOGLE_SHEETS_EXPORT_URL = (
     f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
 )
@@ -627,9 +629,124 @@ class GroqAnalyzer:
 
         # Detectar modo desde session_state
         modo = st.session_state.get("modo_actual", "👥 Clientes")
-        es_intermediarios = "Intermediarios" in modo
+        es_intermediarios = "🏢 Intermediarios" in modo
+        es_gestor_per = "Percepción Gestores" in modo
+        es_intermediarios_per = "Percepción Intermediario" in modo
 
-        if es_intermediarios:
+        if es_gestor_per:
+            fecha_actual = ctx["date_full"]
+            prompt = f"""Eres un experto en gestión de canales de distribución de seguros y relaciones B2B.
+
+**CONTEXTO:**
+Analizas la percepción que tienen los **Intermediarios** (corredores/agentes) sobre los **Gestores Comerciales** de la compañía aseguradora.
+
+**DATOS:**
+- Total de valoraciones: {total}
+- Sentimiento positivo: {pct_pos:.1f}%
+- Sentimiento negativo: {pct_neg:.1f}%
+- Fecha de análisis: {fecha_actual}
+
+**TU MISIÓN:**
+Genera un análisis ejecutivo (400-500 palabras) que incluya:
+
+1. **CALIDAD DE LA RELACIÓN INTERMEDIARIO-GESTOR** (150 palabras):
+   - Nivel de satisfacción de intermediarios con gestores comerciales
+   - Factores clave que impulsan o deterioran la relación
+   - Comparación con benchmarks del sector según estudios de FASECOLDA y Asobancaria
+
+2. **COMPETENCIAS CLAVE DE GESTORES EXITOSOS** (150 palabras):
+   - Habilidades técnicas más valoradas (conocimiento de productos, agilidad en respuesta)
+   - Habilidades blandas críticas (comunicación, empatía, negociación)
+   - Áreas de mejora detectadas en los comentarios negativos
+   - Referencia a frameworks como "SPIN Selling" (Neil Rackham, 1988) y "Consultoría de Ventas Complejas"
+
+3. **IMPACTO EN PRODUCTIVIDAD COMERCIAL** (100 palabras):
+   - Correlación entre satisfacción del intermediario y volumen de ventas
+   - Riesgo de deserción de canales por mala gestión de la relación
+   - Estudios relevantes: "The Challenger Sale" (Dixon & Adamson, 2011)
+   - Métricas de retención de intermediarios en el sector asegurador colombiano
+
+4. **RECOMENDACIONES ACCIONABLES** (100 palabras):
+   - Programas de capacitación específicos para gestores
+   - Métricas de seguimiento (NPS intermediarios, tasa de retención, frecuencia de contacto)
+   - Quick wins para mejorar la percepción inmediatamente
+   - Mejores prácticas del sector según FASECOLDA
+
+**BIBLIOGRAFÍA ESPERADA:**
+- FASECOLDA: "Estudios de distribución de seguros en Colombia"
+- Harvard Business Review: "Managing B2B Customer Relationships"
+- Neil Rackham: "SPIN Selling" (1988)
+- Matthew Dixon & Brent Adamson: "The Challenger Sale" (2011)
+- Corporate Executive Board: "B2B Loyalty" (2012)
+
+**FORMATO:** Usa markdown con headers (##), bullets, negritas para KPIs, y citas bibliográficas al final.
+"""
+        elif es_intermediarios_per:
+            # Calcular estadísticas adicionales para intermediarios per
+            total_gestores = 0
+            total_intermediarios_per = 0
+            distribucion_lineas = "N/A"
+            if "tipo_rol" in df_analyzed.columns:
+                total_gestores = (df_analyzed["tipo_rol"] == "Gestor").sum()
+                total_intermediarios_per = (df_analyzed["tipo_rol"] == "Intermediario").sum()
+            if "linea_negocio" in df_analyzed.columns:
+                dist = df_analyzed["linea_negocio"].value_counts().to_dict()
+                distribucion_lineas = ", ".join([f"{k}: {v}" for k, v in dist.items()])
+            pct_gestores = total_gestores / total * 100 if total > 0 else 0
+            pct_intermediarios_per_val = total_intermediarios_per / total * 100 if total > 0 else 0
+            prompt = f"""Eres un experto en gestión de relaciones con intermediarios de seguros (B2B2C) y estrategia de canales de distribución.
+
+**CONTEXTO:**
+Analizas cómo los **Intermediarios** (corredores/agentes) perciben a la **Compañía Aseguradora** como socio comercial, evaluando tanto a los gestores como a la compañía en general.
+
+**DATOS:**
+- Total de valoraciones: {total}
+- Valoraciones sobre Gestores: {total_gestores} ({pct_gestores:.1f}%)
+- Valoraciones sobre Intermediarios: {total_intermediarios_per} ({pct_intermediarios_per_val:.1f}%)
+- Sentimiento positivo general: {pct_pos:.1f}%
+- Sentimiento negativo general: {pct_neg:.1f}%
+- Distribución por líneas: {distribucion_lineas}
+
+**TU MISIÓN:**
+Genera un análisis ejecutivo (500-600 palabras) que incluya:
+
+1. **FORTALEZAS Y DEBILIDADES PERCIBIDAS** (200 palabras):
+   - Factores que los intermediarios valoran positivamente de la compañía
+   - Puntos de dolor recurrentes (tecnología, procesos, soporte, comunicación)
+   - Diferencias entre percepción de gestores vs. intermediarios
+   - Comparación con competencia según comentarios
+   - Referencia a "Customer Effort Score" (CES) en canales B2B
+
+2. **ANÁLISIS POR LÍNEA DE NEGOCIO** (150 palabras):
+   - Líneas mejor valoradas y por qué (factores diferenciales)
+   - Líneas con mayor insatisfacción y causas raíz
+   - Ejemplos: Autos → rapidez en siniestros, Vida → estructura de comisiones
+   - Correlación con estrategia comercial y volumen de primas por línea
+
+3. **IMPACTO EN LEALTAD Y PRODUCTIVIDAD** (100 palabras):
+   - Riesgo de multi-agenciamiento (intermediario trabaja con varias aseguradoras)
+   - Correlación entre NPS de intermediarios y volumen de primas colocadas
+   - Estudios relevantes: "B2B Loyalty" (Corporate Executive Board, 2012)
+   - Indicadores de retención de canales en el sector colombiano
+
+4. **RECOMENDACIONES ESTRATÉGICAS** (150 palabras):
+   - Mejoras en plataformas tecnológicas (portales para intermediarios, APIs, apps móviles)
+   - Programas de incentivos diferenciados por línea de negocio
+   - Estrategias de comunicación y transparencia en cambios de productos/políticas
+   - Capacitación específica por línea (conocimiento técnico)
+   - Benchmarking con mejores prácticas según FASECOLDA y AIDA
+   - Quick wins por línea de negocio
+
+**BIBLIOGRAFÍA ESPERADA:**
+- FASECOLDA: "Estudio de Canales de Distribución de Seguros en Colombia"
+- McKinsey & Company: "B2B Decision Maker Pulse Survey"
+- Gartner: "Distribution Channel Management in Insurance Industry"
+- Matthew Dixon, Karen Freeman, Nicholas Toman: "The Effortless Experience" (2013)
+- Harvard Business Review: "The New Science of Customer Emotions"
+
+**FORMATO:** Usa markdown con headers (##), bullets, negritas para KPIs, y sección de bibliografía al final.
+"""
+        elif es_intermediarios:
             prompt = f"""Eres un analista senior de canales de distribución en seguros con 15 años de experiencia.
 
 **CONTEXTO TEMPORAL:**
@@ -1078,8 +1195,12 @@ def analyze_texts(texts: list[str]) -> list[dict]:
 @st.cache_data(ttl=600, show_spinner=False)
 def load_clientes_sheet(modo="Clientes") -> pd.DataFrame | None:
     """Carga automática desde Google Sheets según modo (cache 10 min)."""
-    if "Gestor" in modo:
+    if "Gestor Comercial" in modo:
         gid = SHEET_GID_GESTOR
+    elif "Percepción Gestores" in modo:
+        gid = SHEET_GID_GESTOR_PER
+    elif "Percepción Intermediario" in modo:
+        gid = SHEET_GID_INTERMEDIARIOS_PER
     elif "Intermediarios" in modo:
         gid = SHEET_GID_INTERMEDIARIOS
     else:
@@ -1275,6 +1396,202 @@ def filter_gestor_data(
         filtered = filtered[filtered["Gestor"].isin(selected_gestores)]
 
     return filtered.reset_index(drop=True)
+
+
+def detect_columns_flexible(df: pd.DataFrame) -> dict:
+    """
+    Detecta columnas buscando por PALABRAS CLAVE, no por posición.
+
+    Funciona para GESTOR PER, INTERMEDIARIOS PER y otras hojas.
+
+    Returns:
+        dict con keys: fecha, sucursal, atributo, valor
+    """
+    cols = {
+        "fecha": None,
+        "sucursal": None,
+        "atributo": None,
+        "valor": None,
+    }
+
+    for col in df.columns:
+        col_original = col
+        col_clean = str(col).strip().lower()
+
+        if cols["fecha"] is None and ("fecha" in col_clean or "date" in col_clean):
+            cols["fecha"] = col_original
+            continue
+
+        if cols["sucursal"] is None and ("sucursal" in col_clean or "agencia" in col_clean):
+            cols["sucursal"] = col_original
+            continue
+
+        if cols["atributo"] is None and ("atributo" in col_clean or "attribute" in col_clean):
+            cols["atributo"] = col_original
+            continue
+
+        if cols["valor"] is None and (
+            "valor" in col_clean or "value" in col_clean or "respuesta" in col_clean
+        ):
+            cols["valor"] = col_original
+            continue
+
+    return cols
+
+
+def _classify_question_type(pregunta: str) -> str:
+    """
+    Clasifica el tipo de pregunta buscando palabras clave.
+
+    Args:
+        pregunta: Texto de la pregunta (columna Atributo)
+
+    Returns:
+        Tipo de valoración (para usar como filtro)
+    """
+    pregunta_lower = str(pregunta).lower()
+
+    if "valoras" in pregunta_lower or "valora" in pregunta_lower:
+        return "Aspectos Valorados"
+    elif "sugerencia" in pregunta_lower or "reconocimiento" in pregunta_lower:
+        return "Sugerencias y Reconocimientos"
+    elif "mejorar" in pregunta_lower or "mejor" in pregunta_lower:
+        return "Áreas de Mejora"
+    elif "recomendar" in pregunta_lower or "recomendación" in pregunta_lower:
+        return "Recomendaciones"
+    elif "experiencia" in pregunta_lower:
+        return "Experiencia General"
+    else:
+        return "Otra Valoración"
+
+
+def prepare_gestor_per_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepara datos de GESTOR PER (Percepción Gestores).
+
+    Detecta columnas por palabra clave y clasifica preguntas.
+    """
+    cols = detect_columns_flexible(df)
+
+    missing = []
+    if not cols["atributo"]:
+        missing.append("Atributo")
+    if not cols["valor"]:
+        missing.append("Valor")
+
+    if missing:
+        st.error(f"❌ No se encontraron las columnas: {', '.join(missing)}")
+        st.info(f"💡 Columnas disponibles en la hoja: {', '.join(df.columns.tolist())}")
+        return pd.DataFrame()
+
+    df_clean = df.copy()
+
+    df_clean["Atributo"] = (
+        df_clean[cols["atributo"]].fillna("Sin Pregunta").astype(str).str.strip()
+    )
+    df_clean["Valor"] = df_clean[cols["valor"]].fillna("").astype(str).str.strip()
+
+    df_clean["Sucursal"] = (
+        df_clean[cols["sucursal"]].fillna("Sin Sucursal").astype(str).str.strip()
+        if cols["sucursal"]
+        else "Sin Sucursal"
+    )
+
+    if cols["fecha"]:
+        df_clean["fecha"] = parse_fecha_column(df_clean, cols["fecha"])
+    else:
+        df_clean["fecha"] = pd.NaT
+
+    df_clean = df_clean[df_clean["Valor"].str.strip() != ""].copy()
+    df_clean["Tipo_Valoracion"] = df_clean["Atributo"].apply(_classify_question_type)
+    df_clean["linea_negocio"] = "N/A"
+
+    return df_clean.reset_index(drop=True)
+
+
+def _extract_linea_from_text(texto_atributo: str) -> str:
+    """
+    Extrae la línea de negocio buscando palabras clave en el texto.
+
+    Examples:
+        "Colaborador (Gestor) Automóviles" → "Automóviles"
+        "Representante Intermediario Fianzas" → "Fianzas"
+    """
+    texto_lower = str(texto_atributo).lower()
+
+    if "automóvil" in texto_lower or "auto" in texto_lower:
+        return "Automóviles"
+    elif "fianza" in texto_lower:
+        return "Fianzas"
+    elif "general" in texto_lower:
+        return "Generales"
+    elif "vida" in texto_lower:
+        return "Vida"
+    else:
+        return "General"
+
+
+def _extract_rol_from_text(texto_atributo: str) -> str:
+    """
+    Extrae el tipo de rol buscando palabras clave.
+
+    Examples:
+        "Colaborador (Gestor) Automóviles" → "Gestor"
+        "Representante Intermediario Fianzas" → "Intermediario"
+    """
+    texto_lower = str(texto_atributo).lower()
+
+    if "colaborador" in texto_lower or "gestor" in texto_lower:
+        return "Gestor"
+    elif "representante" in texto_lower or "intermediario" in texto_lower:
+        return "Intermediario"
+    else:
+        return "Otro"
+
+
+def prepare_intermediarios_per_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepara datos de INTERMEDIARIOS PER (Percepción Intermediario Cía).
+
+    Extrae línea de negocio y tipo de rol del texto del Atributo.
+    """
+    cols = detect_columns_flexible(df)
+
+    missing = []
+    if not cols["atributo"]:
+        missing.append("Atributo")
+    if not cols["valor"]:
+        missing.append("Valor")
+
+    if missing:
+        st.error(f"❌ No se encontraron las columnas: {', '.join(missing)}")
+        st.info(f"💡 Columnas disponibles: {', '.join(df.columns.tolist())}")
+        return pd.DataFrame()
+
+    df_clean = df.copy()
+
+    df_clean["Atributo"] = df_clean[cols["atributo"]].fillna("").astype(str).str.strip()
+    df_clean["Valor"] = df_clean[cols["valor"]].fillna("").astype(str).str.strip()
+
+    df_clean["Sucursal"] = (
+        df_clean[cols["sucursal"]].fillna("Sin Sucursal").astype(str).str.strip()
+        if cols["sucursal"]
+        else "Sin Sucursal"
+    )
+
+    if cols["fecha"]:
+        df_clean["fecha"] = parse_fecha_column(df_clean, cols["fecha"])
+    else:
+        df_clean["fecha"] = pd.NaT
+
+    df_clean["linea_negocio"] = df_clean["Atributo"].apply(_extract_linea_from_text)
+    df_clean["tipo_rol"] = df_clean["Atributo"].apply(_extract_rol_from_text)
+
+    df_clean = df_clean[
+        (df_clean["Atributo"].str.strip() != "") & (df_clean["Valor"].str.strip() != "")
+    ].copy()
+
+    return df_clean.reset_index(drop=True)
 
 
 def _normalize_attribute_text(series: pd.Series) -> pd.Series:
@@ -2515,6 +2832,226 @@ def render_gestor_dashboard(df: pd.DataFrame):
         st.plotly_chart(fig_timeline, use_container_width=True)
 
 
+def render_gestor_per_dashboard(df: pd.DataFrame):
+    """Dashboard para modo Percepción Gestores."""
+    st.subheader("📊 Percepción de Intermediarios sobre Gestores")
+
+    total = len(df)
+    pct_pos = (df["sentiment"] == "POSITIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+    pct_neg = (df["sentiment"] == "NEGATIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📝 Total Valoraciones", f"{total:,}")
+    with col2:
+        st.metric("😊 % Positivo", f"{pct_pos:.1f}%")
+    with col3:
+        st.metric("😞 % Negativo", f"{pct_neg:.1f}%")
+
+    st.markdown("---")
+
+    # Distribución por tipo de valoración
+    if "Tipo_Valoracion" in df.columns and "sentiment" in df.columns:
+        st.markdown("### 📊 Distribución por Tipo de Valoración")
+        dist_df = (
+            df.groupby(["Tipo_Valoracion", "sentiment"])
+            .size()
+            .reset_index(name="count")
+        )
+        fig_dist = px.bar(
+            dist_df,
+            x="Tipo_Valoracion",
+            y="count",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
+            barmode="stack",
+            title="Sentimientos por Tipo de Pregunta",
+            labels={"Tipo_Valoracion": "Tipo de Valoración", "count": "Cantidad"},
+        )
+        fig_dist.update_layout(
+            **PLOTLY_LAYOUT_TEMPLATE,
+            height=450,
+            xaxis=dict(tickangle=-45),
+        )
+        st.plotly_chart(fig_dist, use_container_width=True)
+
+    # Sentimiento por Sucursal
+    if "Sucursal" in df.columns and "sentiment" in df.columns:
+        sucursales_unicas = df["Sucursal"].dropna().unique()
+        if len(sucursales_unicas) > 1 or (
+            len(sucursales_unicas) == 1 and sucursales_unicas[0] != "Sin Sucursal"
+        ):
+            st.markdown("### 🏢 Sentimiento por Sucursal")
+            suc_pivot = (
+                df.groupby(["Sucursal", "sentiment"])
+                .size()
+                .reset_index(name="n")
+            )
+            suc_pivot["pct"] = suc_pivot.groupby("Sucursal")["n"].transform(
+                lambda x: x / x.sum() * 100
+            )
+            fig_suc = px.bar(
+                suc_pivot,
+                x="Sucursal",
+                y="pct",
+                color="sentiment",
+                color_discrete_map=SENTIMENT_COLORS_VIVID,
+                barmode="stack",
+                title="Distribución de Sentimientos por Sucursal",
+                labels={"Sucursal": "Sucursal/Agencia", "pct": "Porcentaje (%)"},
+            )
+            fig_suc.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+            st.plotly_chart(fig_suc, use_container_width=True)
+
+    # Wordcloud / Bubble Chart
+    st.markdown("### ☁️ Nube de Palabras Clave")
+    all_text = " ".join(df["Valor"].astype(str))
+    if all_text.strip():
+        keywords = extract_keywords(all_text, top_n=50, min_length=4)
+        if keywords:
+            keywords_df = pd.DataFrame(keywords, columns=["keyword", "count"])
+            fig_bubble = create_bubble_chart(keywords_df, df, top_n=30)
+            st.plotly_chart(fig_bubble, use_container_width=True)
+
+    # Timeline
+    if "fecha" in df.columns and df["fecha"].notna().any():
+        st.markdown("### 📈 Evolución Temporal")
+        df_time = df.dropna(subset=["fecha"]).copy()
+        df_time["mes"] = df_time["fecha"].dt.to_period("M").astype(str)
+        time_pivot = (
+            df_time.groupby(["mes", "sentiment"])
+            .size()
+            .reset_index(name="n")
+        )
+        fig_line = px.line(
+            time_pivot,
+            x="mes",
+            y="n",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
+            markers=True,
+            title="Evolución de Sentimientos en el Tiempo",
+            labels={"mes": "Mes", "n": "Cantidad"},
+        )
+        fig_line.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+        st.plotly_chart(fig_line, use_container_width=True)
+
+
+def _render_rol_analysis(df: pd.DataFrame, rol_name: str):
+    """Helper para renderizar análisis por rol en el modo Percepción Intermediario Cía."""
+    st.markdown(f"**Total valoraciones sobre {rol_name}:** {len(df):,}")
+
+    if df.empty:
+        st.warning(f"⚠️ No hay datos de {rol_name}")
+        return
+
+    pct_pos = (df["sentiment"] == "POSITIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+    pct_neg = (df["sentiment"] == "NEGATIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("😊 % Positivo", f"{pct_pos:.1f}%")
+    with col2:
+        st.metric("😞 % Negativo", f"{pct_neg:.1f}%")
+
+    if "linea_negocio" in df.columns and "sentiment" in df.columns:
+        st.markdown(f"### 📊 Sentimiento por Línea de Negocio ({rol_name})")
+        linea_sent = (
+            df.groupby(["linea_negocio", "sentiment"])
+            .size()
+            .reset_index(name="count")
+        )
+        linea_sent["pct"] = linea_sent.groupby("linea_negocio")["count"].transform(
+            lambda x: x / x.sum() * 100
+        )
+        fig_linea = px.bar(
+            linea_sent,
+            x="linea_negocio",
+            y="pct",
+            color="sentiment",
+            color_discrete_map=SENTIMENT_COLORS_VIVID,
+            barmode="stack",
+            title=f"Distribución de Sentimientos por Línea ({rol_name})",
+            labels={"linea_negocio": "Línea de Negocio", "pct": "Porcentaje (%)"},
+        )
+        fig_linea.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+        st.plotly_chart(fig_linea, use_container_width=True)
+
+    st.markdown("### ☁️ Palabras Clave")
+    all_text = " ".join(df["Valor"].astype(str))
+    if all_text.strip():
+        keywords = extract_keywords(all_text, top_n=50, min_length=4)
+        if keywords:
+            keywords_df = pd.DataFrame(keywords, columns=["keyword", "count"])
+            fig_bubble = create_bubble_chart(keywords_df, df, top_n=30)
+            st.plotly_chart(fig_bubble, use_container_width=True)
+
+
+def _render_comparative_analysis(df: pd.DataFrame):
+    """Análisis comparativo Gestores vs Intermediarios."""
+    st.markdown("### 📊 Comparativa: Gestores vs Intermediarios por Línea")
+
+    if "linea_negocio" not in df.columns or "tipo_rol" not in df.columns or "sentiment" not in df.columns:
+        st.info("⚠️ No hay suficientes datos para la comparativa.")
+        return
+
+    comp_df = (
+        df.groupby(["linea_negocio", "tipo_rol", "sentiment"])
+        .size()
+        .reset_index(name="count")
+    )
+
+    fig_comp = px.bar(
+        comp_df,
+        x="linea_negocio",
+        y="count",
+        color="sentiment",
+        facet_col="tipo_rol",
+        color_discrete_map=SENTIMENT_COLORS_VIVID,
+        barmode="stack",
+        title="Comparativa de Sentimientos por Línea y Rol",
+        labels={"linea_negocio": "Línea de Negocio", "count": "Cantidad"},
+    )
+    fig_comp.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=500)
+    st.plotly_chart(fig_comp, use_container_width=True)
+
+    # Tabla resumen
+    st.markdown("### 📋 Resumen Comparativo")
+    summary = (
+        df.groupby(["linea_negocio", "tipo_rol"])["sentiment"]
+        .agg(
+            Total="count",
+            Pct_Positivo=lambda x: round((x == "POSITIVO").mean() * 100, 1),
+            Pct_Negativo=lambda x: round((x == "NEGATIVO").mean() * 100, 1),
+        )
+        .reset_index()
+    )
+    summary.columns = ["Línea", "Rol", "Total", "% Positivo", "% Negativo"]
+    st.dataframe(sanitize_df_for_streamlit(summary), use_container_width=True, hide_index=True)
+
+
+def render_intermediarios_per_dashboard(df: pd.DataFrame):
+    """Dashboard para modo Percepción Intermediario Cía."""
+    st.subheader("🤝 Percepción de Intermediarios sobre la Compañía")
+
+    tab1, tab2, tab3 = st.tabs([
+        "👥 Valoración de Gestores",
+        "🏢 Valoración de Intermediarios",
+        "📊 Comparativa por Línea",
+    ])
+
+    with tab1:
+        df_gestores = df[df["tipo_rol"] == "Gestor"] if "tipo_rol" in df.columns else df
+        _render_rol_analysis(df_gestores, "Gestores")
+
+    with tab2:
+        df_inter = df[df["tipo_rol"] == "Intermediario"] if "tipo_rol" in df.columns else df
+        _render_rol_analysis(df_inter, "Intermediarios")
+
+    with tab3:
+        _render_comparative_analysis(df)
+
+
 # ── Pantalla de bienvenida ─────────────────────────────────────────────────────
 def render_welcome():
     st.markdown(
@@ -2577,7 +3114,7 @@ def render_sidebar() -> tuple:
     Renderiza la barra lateral.
 
     Retorna (selected_lineas, selected_sucursales, analyze_btn, modo_analisis,
-             selected_ubicaciones, selected_gestores).
+             selected_ubicaciones, selected_gestores, selected_tipos_val, selected_roles).
     """
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/analytics.png", width=80)
@@ -2588,18 +3125,31 @@ def render_sidebar() -> tuple:
         st.subheader("🔄 Modo de Análisis")
         modo_analisis = st.radio(
             "Selecciona el tipo de datos:",
-            options=["👥 Clientes", "🏢 Intermediarios", "💼 Gestor Comercial"],
+            options=[
+                "👥 Clientes",
+                "🏢 Intermediarios",
+                "💼 Gestor Comercial",
+                "📊 Percepción Gestores",
+                "🤝 Percepción Intermediario Cía",
+            ],
             index=0,
             help="Cambia entre análisis de clientes finales, intermediarios o gestor comercial"
         )
+
+        is_gestor_per = "Percepción Gestores" in modo_analisis
+        is_intermediarios_per = "Percepción Intermediario" in modo_analisis
 
         # ── Automatic load ────────────────────────────────────────────────────
         if "df_raw" not in st.session_state or "modo_actual" not in st.session_state:
             with st.spinner(f"⏳ Cargando datos de {modo_analisis}..."):
                 auto_df = load_clientes_sheet(modo_analisis)
             if auto_df is not None:
-                if "Gestor" in modo_analisis:
+                if "Gestor Comercial" in modo_analisis:
                     auto_df = prepare_gestor_data(auto_df)
+                elif is_gestor_per:
+                    auto_df = prepare_gestor_per_data(auto_df)
+                elif is_intermediarios_per:
+                    auto_df = prepare_intermediarios_per_data(auto_df)
                 st.session_state["df_raw"] = auto_df
                 st.session_state["modo_actual"] = modo_analisis
                 st.success(f"✅ {len(auto_df):,} registros cargados automáticamente")
@@ -2610,8 +3160,12 @@ def render_sidebar() -> tuple:
             with st.spinner("⏳ Cargando datos..."):
                 auto_df = load_clientes_sheet(modo_analisis)
             if auto_df is not None:
-                if "Gestor" in modo_analisis:
+                if "Gestor Comercial" in modo_analisis:
                     auto_df = prepare_gestor_data(auto_df)
+                elif is_gestor_per:
+                    auto_df = prepare_gestor_per_data(auto_df)
+                elif is_intermediarios_per:
+                    auto_df = prepare_intermediarios_per_data(auto_df)
                 st.session_state["df_raw"] = auto_df
                 st.session_state["modo_actual"] = modo_analisis
                 st.session_state.pop("df_results", None)
@@ -2639,8 +3193,12 @@ def render_sidebar() -> tuple:
                 try:
                     with st.spinner("Descargando datos…"):
                         df_raw = load_from_google_sheets(export_url)
-                    if "Gestor" in modo_analisis:
+                    if "Gestor Comercial" in modo_analisis:
                         df_raw = prepare_gestor_data(df_raw)
+                    elif is_gestor_per:
+                        df_raw = prepare_gestor_per_data(df_raw)
+                    elif is_intermediarios_per:
+                        df_raw = prepare_intermediarios_per_data(df_raw)
                     st.success(f"✅ {len(df_raw):,} filas cargadas")
                     st.session_state["df_raw"] = df_raw
                     st.session_state["modo_actual"] = modo_analisis
@@ -2663,11 +3221,13 @@ def render_sidebar() -> tuple:
         selected_sucursales = None
         selected_ubicaciones = None
         selected_gestores = None
+        selected_tipos_val = None
+        selected_roles = None
         df_current = st.session_state.get("df_raw")
 
         if df_current is not None:
-            if "Gestor" in modo_analisis:
-                # Filtros específicos de GESTOR
+            if "Gestor Comercial" in modo_analisis:
+                # Filtros específicos de GESTOR COMERCIAL
                 if "Sucursal" in df_current.columns:
                     sucursales_disponibles = sorted(
                         df_current["Sucursal"].dropna().astype(str)
@@ -2706,6 +3266,64 @@ def render_sidebar() -> tuple:
                             default=[],
                             help="Analiza el desempeño de gestores específicos",
                         )
+
+            elif is_gestor_per:
+                # Filtros para Percepción Gestores
+                if "Sucursal" in df_current.columns:
+                    sucursales_disponibles = sorted(
+                        df_current["Sucursal"].dropna().astype(str)
+                        .str.strip().loc[lambda x: x != ""].unique()
+                    )
+                    if sucursales_disponibles:
+                        selected_sucursales = st.multiselect(
+                            "🏢 Filtrar por Sucursal:",
+                            options=sucursales_disponibles,
+                            default=[],
+                            help="Selecciona una o más sucursales para analizar",
+                        )
+
+                if "Tipo_Valoracion" in df_current.columns:
+                    tipos_disponibles = sorted(df_current["Tipo_Valoracion"].dropna().unique().tolist())
+                    selected_tipos_val = st.multiselect(
+                        "🔍 Tipo de Valoración del Intermediario:",
+                        options=tipos_disponibles,
+                        default=tipos_disponibles,
+                        help="Filtra por el tipo de pregunta formulada al intermediario",
+                    )
+
+            elif is_intermediarios_per:
+                # Filtros para Percepción Intermediario Cía
+                if "Sucursal" in df_current.columns:
+                    sucursales_disponibles = sorted(
+                        df_current["Sucursal"].dropna().astype(str)
+                        .str.strip().loc[lambda x: x != ""].unique()
+                    )
+                    if sucursales_disponibles:
+                        selected_sucursales = st.multiselect(
+                            "🏢 Filtrar por Sucursal:",
+                            options=sucursales_disponibles,
+                            default=[],
+                            help="Selecciona una o más sucursales para analizar",
+                        )
+
+                if "linea_negocio" in df_current.columns:
+                    lineas_disponibles = sorted(df_current["linea_negocio"].dropna().unique().tolist())
+                    selected_lineas = st.multiselect(
+                        "📊 Filtrar por Línea de Negocio:",
+                        options=lineas_disponibles,
+                        default=lineas_disponibles,
+                        help="Filtra por línea de negocio (Automóviles, Fianzas, etc.)",
+                    )
+
+                if "tipo_rol" in df_current.columns:
+                    roles_disponibles = sorted(df_current["tipo_rol"].dropna().unique().tolist())
+                    selected_roles = st.multiselect(
+                        "👥 Filtrar por Rol:",
+                        options=roles_disponibles,
+                        default=roles_disponibles,
+                        help="Gestor (Colaborador) vs Intermediario (Representante)",
+                    )
+
             else:
                 # Filtros para Clientes / Intermediarios
                 cols = detect_columns(df_current)
@@ -2769,7 +3387,16 @@ def render_sidebar() -> tuple:
             unsafe_allow_html=True,
         )
 
-    return selected_lineas, selected_sucursales, analyze_btn, modo_analisis, selected_ubicaciones, selected_gestores
+    return (
+        selected_lineas,
+        selected_sucursales,
+        analyze_btn,
+        modo_analisis,
+        selected_ubicaciones,
+        selected_gestores,
+        selected_tipos_val,
+        selected_roles,
+    )
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -2781,12 +3408,16 @@ def main():
         modo_analisis,
         selected_ubicaciones,
         selected_gestores,
+        selected_tipos_val,
+        selected_roles,
     ) = render_sidebar()
 
     df_raw = st.session_state.get("df_raw", None)
     df_results = st.session_state.get("df_results", None)
 
-    is_gestor = "Gestor" in modo_analisis
+    is_gestor = "Gestor Comercial" in modo_analisis
+    is_gestor_per = "Percepción Gestores" in modo_analisis
+    is_intermediarios_per = "Percepción Intermediario" in modo_analisis
 
     if df_raw is None and not analyze_btn:
         render_welcome()
@@ -2798,10 +3429,28 @@ def main():
             return
 
         if is_gestor:
-            # GESTOR: data is already prepared by prepare_gestor_data()
+            # GESTOR COMERCIAL: data is already prepared by prepare_gestor_data()
             df_filtered = filter_gestor_data(
                 df_raw, selected_sucursales, selected_ubicaciones, selected_gestores
             )
+        elif is_gestor_per:
+            # PERCEPCIÓN GESTORES: data already prepared, apply filters
+            df_filtered = df_raw.copy()
+            if selected_sucursales and "Sucursal" in df_filtered.columns:
+                df_filtered = df_filtered[df_filtered["Sucursal"].isin(selected_sucursales)]
+            if selected_tipos_val and "Tipo_Valoracion" in df_filtered.columns:
+                df_filtered = df_filtered[df_filtered["Tipo_Valoracion"].isin(selected_tipos_val)]
+            df_filtered = df_filtered.reset_index(drop=True)
+        elif is_intermediarios_per:
+            # PERCEPCIÓN INTERMEDIARIO CÍA: data already prepared, apply filters
+            df_filtered = df_raw.copy()
+            if selected_sucursales and "Sucursal" in df_filtered.columns:
+                df_filtered = df_filtered[df_filtered["Sucursal"].isin(selected_sucursales)]
+            if selected_lineas and "linea_negocio" in df_filtered.columns:
+                df_filtered = df_filtered[df_filtered["linea_negocio"].isin(selected_lineas)]
+            if selected_roles and "tipo_rol" in df_filtered.columns:
+                df_filtered = df_filtered[df_filtered["tipo_rol"].isin(selected_roles)]
+            df_filtered = df_filtered.reset_index(drop=True)
         else:
             # Clientes / Intermediarios: detect and filter
             cols = detect_columns(df_raw)
@@ -2885,6 +3534,36 @@ def main():
             with tab4:
                 render_tab_ai(df_results)
             with tab5:
+                render_tab_export(df_results)
+        elif is_gestor_per:
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📊 Dashboard Percepción",
+                "💬 Explorador de Comentarios",
+                "🤖 Insights con IA",
+                "📥 Exportar",
+            ])
+            with tab1:
+                render_gestor_per_dashboard(df_results)
+            with tab2:
+                render_tab_comments(df_results)
+            with tab3:
+                render_tab_ai(df_results)
+            with tab4:
+                render_tab_export(df_results)
+        elif is_intermediarios_per:
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "🤝 Dashboard Percepción",
+                "💬 Explorador de Comentarios",
+                "🤖 Insights con IA",
+                "📥 Exportar",
+            ])
+            with tab1:
+                render_intermediarios_per_dashboard(df_results)
+            with tab2:
+                render_tab_comments(df_results)
+            with tab3:
+                render_tab_ai(df_results)
+            with tab4:
                 render_tab_export(df_results)
         else:
             tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
