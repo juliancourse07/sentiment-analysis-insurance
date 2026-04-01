@@ -211,16 +211,19 @@ PLOTLY_LAYOUT_TEMPLATE = {
     "font": {
         "family": "Poppins, -apple-system, BlinkMacSystemFont, sans-serif",
         "color": "#1e3a8a",  # Azul oscuro más legible
-        "size": 13,
+        "size": 12,
     },
     "title": {
-        "font": {"size": 18, "color": "#1e3a8a", "family": "Poppins"},
+        "font": {"size": 16, "color": "#1e3a8a", "family": "Poppins"},
+        "x": 0.5,
+        "xanchor": "center",
     },
     "hoverlabel": {
         "bgcolor": "#1e3a8a",
-        "font": {"family": "Poppins", "size": 12, "color": "white"},
+        "font": {"family": "Poppins", "size": 11, "color": "white"},
     },
     "colorway": ["#667eea", "#764ba2", "#f093fb", "#4facfe", "#43e97b"],
+    "margin": dict(t=80, b=70, l=70, r=50),
 }
 
 # Benchmark de satisfacción del sector asegurador colombiano (%)
@@ -2046,29 +2049,31 @@ def create_bubble_chart(
 
     fig.update_layout(
         title={
-            "text": "🎯 Palabras Clave por Frecuencia y Sentimiento",
+            "text": "🎯 Palabras Clave",
             "x": 0.5,
             "xanchor": "center",
-            "font": {"size": 20, "color": "#1e293b"},
+            "font": {"size": 18, "color": "#1e293b"},
         },
         xaxis=dict(
-            title="Frecuencia de aparición",
+            title="Frecuencia",
             gridcolor="rgba(148, 163, 184, 0.2)",
             showgrid=True,
+            titlefont=dict(size=12),
         ),
         yaxis=dict(
-            title="Sentimiento Promedio",
+            title="Sentimiento",
             gridcolor="rgba(148, 163, 184, 0.2)",
             showgrid=True,
             range=[-1.1, 1.1],
             tickmode="array",
             tickvals=[-1, -0.5, 0, 0.5, 1],
-            ticktext=["Muy Negativo", "Negativo", "Neutral", "Positivo", "Muy Positivo"],
+            ticktext=["Muy Neg", "Neg", "Neu", "Pos", "Muy Pos"],
+            titlefont=dict(size=12),
         ),
         plot_bgcolor="rgba(248, 250, 252, 0.8)",
         paper_bgcolor="white",
         height=550,
-        margin=dict(t=80, b=60, l=60, r=40),
+        margin=dict(t=90, b=70, l=80, r=50),
         hovermode="closest",
     )
     return fig
@@ -2176,14 +2181,14 @@ def render_tab_dashboard(df: pd.DataFrame):
             color="sentiment",
             color_discrete_map=SENTIMENT_COLORS_VIVID,
             barmode="stack",
-            title="📊 Sentimientos por Línea de Negocio (%)",
+            title="📊 Sentimientos por Línea (%)",
             labels={"linea_negocio": "Línea", "pct": "Porcentaje (%)"},
         )
         fig_bar.update_layout(
             **PLOTLY_LAYOUT_TEMPLATE,
             height=450,
-            xaxis=dict(title="Línea de Negocio", tickfont=dict(size=13, color="#1e3a8a")),
-            yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=12, color="#475569")),
+            xaxis=dict(title="Línea de Negocio", tickfont=dict(size=11, color="#1e3a8a"), tickangle=-30),
+            yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=11, color="#475569")),
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -2211,8 +2216,8 @@ def render_tab_dashboard(df: pd.DataFrame):
         fig_bar_suc.update_layout(
             **PLOTLY_LAYOUT_TEMPLATE,
             height=450,
-            xaxis=dict(title="Sucursal", tickfont=dict(size=13, color="#1e3a8a")),
-            yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=12, color="#475569")),
+            xaxis=dict(title="Sucursal", tickfont=dict(size=11, color="#1e3a8a"), tickangle=-30),
+            yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=11, color="#475569")),
         )
         st.plotly_chart(fig_bar_suc, use_container_width=True)
 
@@ -2435,7 +2440,7 @@ def render_tab_comments(df: pd.DataFrame):
 
         with st.expander(f"💬 {sent} — {text_preview}", expanded=False):
             st.markdown("---")
-            st.markdown("**📝 Comentario completo:**")
+            st.markdown("**📝 Comentario:**")
             st.info(row['Valor'])
 
             st.markdown("---")
@@ -2453,13 +2458,13 @@ def render_tab_comments(df: pd.DataFrame):
                 conf_source = "(IA)" if row.get("ai_validated", False) else "(BETO)"
                 st.metric(
                     label="Confianza",
-                    value=f"{row['confidence']:.1%}",
+                    value=f"{row['confidence']:.0%}",
                     help=f"Nivel de certeza del modelo {conf_source}"
                 )
 
             with c3:
                 linea_valid = linea_label and linea_label not in ("nan", "None", "")
-                linea_display = linea_label if linea_valid else "General"
+                linea_display = linea_label if linea_valid else "Gral"
                 st.metric(
                     label="Línea",
                     value=linea_display,
@@ -2817,7 +2822,7 @@ def render_gestor_dashboard(df: pd.DataFrame):
             color="sentiment",
             color_discrete_map=SENTIMENT_COLORS_VIVID,
             markers=True,
-            title="Tendencia de Sentimientos en Reuniones Comerciales",
+            title="Tendencia de Sentimientos",
             labels={"mes": "Mes", "n": "Cantidad de Reuniones"},
         )
         fig_timeline.update_layout(
@@ -2865,7 +2870,7 @@ def render_gestor_per_dashboard(df: pd.DataFrame):
             color="sentiment",
             color_discrete_map=SENTIMENT_COLORS_VIVID,
             barmode="stack",
-            title="Sentimientos por Tipo de Pregunta",
+            title="Distribución por Tipo",
             labels={"Tipo_Valoracion": "Tipo de Valoración", "count": "Cantidad"},
         )
         fig_dist.update_layout(
@@ -3306,13 +3311,13 @@ def render_sidebar() -> tuple:
                             help="Selecciona una o más sucursales para analizar",
                         )
 
-                if "linea_negocio" in df_current.columns:
-                    lineas_disponibles = sorted(df_current["linea_negocio"].dropna().unique().tolist())
-                    selected_lineas = st.multiselect(
-                        "📊 Filtrar por Línea de Negocio:",
-                        options=lineas_disponibles,
-                        default=lineas_disponibles,
-                        help="Filtra por línea de negocio (Automóviles, Fianzas, etc.)",
+                if "Tipo_Valoracion" in df_current.columns:
+                    tipos_disponibles = sorted(df_current["Tipo_Valoracion"].dropna().unique().tolist())
+                    selected_tipos_val = st.multiselect(
+                        "🔍 Tipo de Valoración:",
+                        options=tipos_disponibles,
+                        default=tipos_disponibles,
+                        help="Filtra por tipo de valoración del intermediario",
                     )
 
                 if "tipo_rol" in df_current.columns:
