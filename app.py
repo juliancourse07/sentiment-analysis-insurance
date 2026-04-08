@@ -694,57 +694,88 @@ Genera un análisis ejecutivo (400-500 palabras) que incluya:
                 distribucion_lineas = ", ".join([f"{k}: {v}" for k, v in dist.items()])
             pct_gestores = total_gestores / total * 100 if total > 0 else 0
             pct_intermediarios_per_val = total_intermediarios_per / total * 100 if total > 0 else 0
-            prompt = f"""Eres un experto en gestión de relaciones con intermediarios de seguros (B2B2C) y estrategia de canales de distribución.
+
+            fecha_actual = ctx["date_full"]
+            prompt = f"""Eres un analista estratégico senior especializado en canales de distribución de seguros y relaciones B2B2C en Colombia.
 
 **CONTEXTO:**
-Analizas cómo los **Intermediarios** (corredores/agentes) perciben a la **Compañía Aseguradora** como socio comercial, evaluando tanto a los gestores como a la compañía en general.
+Analizas la **percepción que tienen los Intermediarios (corredores/agentes) sobre la Compañía Aseguradora** como socio comercial estratégico.
 
-**DATOS:**
+**DATOS CLAVE:**
 - Total de valoraciones: {total}
-- Valoraciones sobre Gestores: {total_gestores} ({pct_gestores:.1f}%)
-- Valoraciones sobre Intermediarios: {total_intermediarios_per} ({pct_intermediarios_per_val:.1f}%)
+- Valoraciones sobre Colaboradores/Gestores: {total_gestores} ({pct_gestores:.1f}%)
+- Valoraciones sobre Representantes/Intermediarios: {total_intermediarios_per} ({pct_intermediarios_per_val:.1f}%)
 - Sentimiento positivo general: {pct_pos:.1f}%
 - Sentimiento negativo general: {pct_neg:.1f}%
 - Distribución por líneas: {distribucion_lineas}
+- Fecha de análisis: {fecha_actual}
 
 **TU MISIÓN:**
-Genera un análisis ejecutivo (500-600 palabras) que incluya:
+Genera un análisis ejecutivo estratégico (600-700 palabras) que proporcione **insumos valiosos** para decisiones de negocio:
 
-1. **FORTALEZAS Y DEBILIDADES PERCIBIDAS** (200 palabras):
-   - Factores que los intermediarios valoran positivamente de la compañía
-   - Puntos de dolor recurrentes (tecnología, procesos, soporte, comunicación)
-   - Diferencias entre percepción de gestores vs. intermediarios
-   - Comparación con competencia según comentarios
-   - Referencia a "Customer Effort Score" (CES) en canales B2B
+1. **DIAGNÓSTICO ESTRATÉGICO DE LA RELACIÓN INTERMEDIARIO-COMPAÑÍA** (200 palabras):
+   - ¿Qué tan sólida es la relación comercial con los intermediarios?
+   - Factores críticos que impulsan la lealtad del canal (comisiones, soporte, tecnología, agilidad)
+   - Puntos de dolor recurrentes que ponen en riesgo la relación (sistemas obsoletos, falta de comunicación, políticas rígidas)
+   - Diferencias entre percepción de colaboradores/gestores vs representantes/intermediarios
+   - Comparación con competencia según comentarios (menciones de otras aseguradoras)
+   - Referencias: "Customer Effort Score (CES)" en canales B2B, NPS de intermediarios
 
-2. **ANÁLISIS POR LÍNEA DE NEGOCIO** (150 palabras):
-   - Líneas mejor valoradas y por qué (factores diferenciales)
-   - Líneas con mayor insatisfacción y causas raíz
-   - Ejemplos: Autos → rapidez en siniestros, Vida → estructura de comisiones
+2. **ANÁLISIS POR LÍNEA DE NEGOCIO: OPORTUNIDADES Y RIESGOS** (200 palabras):
+   - Líneas mejor valoradas: ¿Por qué? (Factores diferenciales: rapidez, comisiones, productos competitivos)
+   - Líneas con mayor insatisfacción: Causas raíz específicas (procesos complejos, falta de soporte, tarifas no competitivas)
+   - Ejemplos concretos:
+     * **Autos:** Rapidez en siniestros, plataforma digital, competencia con agregadores
+     * **Vida:** Estructura de comisiones, capacitación, claridad en productos
+     * **Fianzas/Generales:** Soporte técnico, conocimiento especializado de gestores
    - Correlación con estrategia comercial y volumen de primas por línea
+   - Oportunidades de crecimiento identificadas
 
-3. **IMPACTO EN LEALTAD Y PRODUCTIVIDAD** (100 palabras):
-   - Riesgo de multi-agenciamiento (intermediario trabaja con varias aseguradoras)
+3. **IMPACTO EN LEALTAD, PRODUCTIVIDAD Y RETENCIÓN DE CANAL** (150 palabras):
+   - Riesgo de **multi-agenciamiento** (intermediario trabaja con varias aseguradoras): ¿La compañía es primera opción o segunda opción?
    - Correlación entre NPS de intermediarios y volumen de primas colocadas
-   - Estudios relevantes: "B2B Loyalty" (Corporate Executive Board, 2012)
-   - Indicadores de retención de canales en el sector colombiano
+   - Análisis de retención de canales: ¿Hay señales de deserción? ¿Qué lo causa?
+   - Estudios relevantes:
+     * "B2B Loyalty" (Corporate Executive Board, 2012)
+     * "The Effortless Experience" (Dixon, Freeman, Toman, 2013)
+   - Indicadores de salud del canal: frecuencia de contacto, tasa de respuesta, volumen de negocio por intermediario
 
-4. **RECOMENDACIONES ESTRATÉGICAS** (150 palabras):
-   - Mejoras en plataformas tecnológicas (portales para intermediarios, APIs, apps móviles)
-   - Programas de incentivos diferenciados por línea de negocio
-   - Estrategias de comunicación y transparencia en cambios de productos/políticas
-   - Capacitación específica por línea (conocimiento técnico)
-   - Benchmarking con mejores prácticas según FASECOLDA y AIDA
-   - Quick wins por línea de negocio
+4. **RECOMENDACIONES ESTRATÉGICAS ACCIONABLES** (150 palabras):
+   - **Mejoras tecnológicas críticas:**
+     * Portales para intermediarios (cotización, emisión, consulta de comisiones)
+     * APIs para integración con sistemas de corredores
+     * Apps móviles para gestión de pólizas en campo
+   - **Programas de incentivos diferenciados por línea:**
+     * Bonos por cumplimiento de objetivos
+     * Comisiones por volumen o rentabilidad
+     * Reconocimientos por lealtad
+   - **Estrategias de comunicación y transparencia:**
+     * Notificación anticipada de cambios en productos/políticas
+     * Canales directos con gestores (WhatsApp Business, email dedicado)
+     * Webinars de capacitación por línea de negocio
+   - **Capacitación técnica específica:**
+     * Conocimiento profundo de productos por línea
+     * Talleres de cierre de ventas complejas
+     * Actualización regulatoria (Superintendencia Financiera)
+   - **Quick wins por línea de negocio:**
+     * Autos: Acelerar tiempos de emisión
+     * Vida: Simplificar formularios de solicitud
+     * Fianzas: Mejorar comunicación de gestores especializados
 
-**BIBLIOGRAFÍA ESPERADA:**
+**BENCHMARKING Y MEJORES PRÁCTICAS:**
 - FASECOLDA: "Estudio de Canales de Distribución de Seguros en Colombia"
 - McKinsey & Company: "B2B Decision Maker Pulse Survey"
 - Gartner: "Distribution Channel Management in Insurance Industry"
-- Matthew Dixon, Karen Freeman, Nicholas Toman: "The Effortless Experience" (2013)
 - Harvard Business Review: "The New Science of Customer Emotions"
+- AIDA (Asociación Internacional de Derecho de Seguros): Mejores prácticas en relaciones con intermediarios
 
-**FORMATO:** Usa markdown con headers (##), bullets, negritas para KPIs, y sección de bibliografía al final.
+**FORMATO:**
+- Usa markdown con headers (##), bullets, negritas para KPIs
+- Incluye sección de **Bibliografía** al final
+- Destaca métricas clave en **negritas**
+- Usa emojis estratégicos (📊 ⚠️ 🎯 💡 ✅ ⚡)
+
+**TONO:** Estratégico, analítico, orientado a decisiones de negocio, con foco en **insumos valiosos** para la alta dirección.
 """
         elif es_intermediarios:
             prompt = f"""Eres un analista senior de canales de distribución en seguros con 15 años de experiencia.
@@ -3305,24 +3336,7 @@ def render_sidebar() -> tuple:
                             default=[],
                             help="Selecciona una o más sucursales para analizar",
                         )
-
-                if "linea_negocio" in df_current.columns:
-                    lineas_disponibles = sorted(df_current["linea_negocio"].dropna().unique().tolist())
-                    selected_lineas = st.multiselect(
-                        "📊 Filtrar por Línea de Negocio:",
-                        options=lineas_disponibles,
-                        default=lineas_disponibles,
-                        help="Filtra por línea de negocio (Automóviles, Fianzas, etc.)",
-                    )
-
-                if "tipo_rol" in df_current.columns:
-                    roles_disponibles = sorted(df_current["tipo_rol"].dropna().unique().tolist())
-                    selected_roles = st.multiselect(
-                        "👥 Filtrar por Rol:",
-                        options=roles_disponibles,
-                        default=roles_disponibles,
-                        help="Gestor (Colaborador) vs Intermediario (Representante)",
-                    )
+                # NO mostrar filtros de linea_negocio ni tipo_rol
 
             else:
                 # Filtros para Clientes / Intermediarios
@@ -3442,14 +3456,11 @@ def main():
                 df_filtered = df_filtered[df_filtered["Tipo_Valoracion"].isin(selected_tipos_val)]
             df_filtered = df_filtered.reset_index(drop=True)
         elif is_intermediarios_per:
-            # PERCEPCIÓN INTERMEDIARIO CÍA: data already prepared, apply filters
+            # PERCEPCIÓN INTERMEDIARIO CÍA: toma TODOS los datos, solo filtra por Sucursal
             df_filtered = df_raw.copy()
             if selected_sucursales and "Sucursal" in df_filtered.columns:
                 df_filtered = df_filtered[df_filtered["Sucursal"].isin(selected_sucursales)]
-            if selected_lineas and "linea_negocio" in df_filtered.columns:
-                df_filtered = df_filtered[df_filtered["linea_negocio"].isin(selected_lineas)]
-            if selected_roles and "tipo_rol" in df_filtered.columns:
-                df_filtered = df_filtered[df_filtered["tipo_rol"].isin(selected_roles)]
+            # NO aplicar filtros de linea_negocio ni tipo_rol
             df_filtered = df_filtered.reset_index(drop=True)
         else:
             # Clientes / Intermediarios: detect and filter
@@ -3536,8 +3547,9 @@ def main():
             with tab5:
                 render_tab_export(df_results)
         elif is_gestor_per:
-            tab1, tab2, tab3, tab4 = st.tabs([
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "📊 Dashboard Percepción",
+                "🎯 Análisis 3D",
                 "💬 Explorador de Comentarios",
                 "🤖 Insights con IA",
                 "📥 Exportar",
@@ -3545,10 +3557,12 @@ def main():
             with tab1:
                 render_gestor_per_dashboard(df_results)
             with tab2:
-                render_tab_comments(df_results)
+                render_tab_3d(df_results)
             with tab3:
-                render_tab_ai(df_results)
+                render_tab_comments(df_results)
             with tab4:
+                render_tab_ai(df_results)
+            with tab5:
                 render_tab_export(df_results)
         elif is_intermediarios_per:
             tab1, tab2, tab3, tab4 = st.tabs([
