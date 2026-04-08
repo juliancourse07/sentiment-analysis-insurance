@@ -9,6 +9,7 @@ import os
 import re
 import io
 import time
+import unicodedata
 import warnings
 from datetime import datetime, timedelta
 from collections import Counter
@@ -491,7 +492,7 @@ class SentimentAnalyzer:
                 final_label = "MIXTO"
                 final_conf = 0.60
             ai_used = False
-        elif beto_conf < 0.70 or (pos_kw > 0 and neg_kw > 0) or not beto_vote:
+        elif beto_conf < 0.65 or (pos_kw > 0 and neg_kw > 0) or not beto_vote:
             # Caso dudoso: pedir validación de IA
             ai_result = self._groq_quick_classify(clean)
             if ai_result:
@@ -2475,14 +2476,17 @@ def render_tab_comments(df: pd.DataFrame):
         linea_label = str(row.get("linea_negocio", ATTRIBUTE_LABELS.get(row["Atributo"], row["Atributo"])))
         suc_label = str(row.get("Sucursal", "")).strip() if has_sucursal else ""
 
-        text_preview = str(row["Valor"])[:80].strip()
-        # Strip special/emoji characters that cause rendering overlap in expander titles.
-        # The leading 💬 emoji prefix was also removed for the same reason.
-        text_preview = re.sub(r'[^\w\s\.,;:¿?¡!áéíóúÁÉÍÓÚñÑüÜ-]', '', text_preview)
-        if len(str(row["Valor"])) > 80:
+        text_preview = str(row["Valor"])[:100].strip()
+        # Descomponer Unicode NFKD y luego eliminar caracteres no básicos con regex
+        text_preview = unicodedata.normalize('NFKD', text_preview)
+        # Eliminar TODO excepto letras, números, espacios y puntuación básica
+        text_preview = re.sub(r'[^\w\s\.,;:\-¿?¡!áéíóúÁÉÍÓÚñÑüÜ()]', '', text_preview)
+        # Eliminar espacios múltiples
+        text_preview = re.sub(r'\s+', ' ', text_preview).strip()
+        if len(str(row["Valor"])) > 100:
             text_preview += "..."
 
-        with st.expander(f"{sent} — {text_preview}", expanded=False):
+        with st.expander(f"{sent} | {text_preview}", expanded=False):
             st.markdown("---")
             st.markdown("**📝 Comentario completo:**")
             st.info(row['Valor'])
@@ -3520,6 +3524,45 @@ def render_sidebar() -> tuple:
             "🔍 Analizar Sentimientos", type="primary", use_container_width=True
         )
 
+        # ── Performance Metrics (si existen) ──────────────────────────────────
+        if "performance_metrics" in st.session_state:
+            st.markdown("---")
+            st.markdown("### ⚡ Métricas de Performance")
+            metrics = st.session_state["performance_metrics"]
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric(
+                    "📊 Textos analizados",
+                    f"{metrics['total_analyzed']:,}",
+                    help="Total de comentarios procesados",
+                )
+                st.metric(
+                    "⏱️ Tiempo total",
+                    f"{metrics['total_time']:.1f}s",
+                    help="Tiempo de procesamiento completo",
+                )
+            with col2:
+                st.metric(
+                    "⚡ Promedio/texto",
+                    f"{metrics['avg_time_per_text']*1000:.0f}ms",
+                    help="Tiempo promedio por comentario",
+                )
+                st.metric(
+                    "💰 Ahorro IA",
+                    f"{metrics['groq_savings_pct']:.0f}%",
+                    delta=f"-{metrics['groq_calls']} llamadas",
+                    help="Reducción de llamadas a API de IA",
+                )
+            with st.expander("📈 Detalles técnicos", expanded=False):
+                beto_call_count = metrics["beto_calls"]
+                groq_call_count = metrics["groq_calls"]
+                st.json({
+                    "Llamadas BETO": beto_call_count,
+                    "Validaciones IA": groq_call_count,
+                    "Tamaño de lote": metrics["batch_size"],
+                    "Tasa validación": f"{(groq_call_count/beto_call_count*100):.1f}%" if beto_call_count > 0 else "0%",
+                })
+
         st.markdown("---")
         st.markdown(
             "<small>Modelo: BETO (finiteautomata/beto-sentiment-analysis)</small>",
@@ -3626,16 +3669,52 @@ def main():
             classifier = analyzer.load_model()
 
         results = []
-        progress = st.progress(0, text="Analizando sentimientos…")
+        BATCH_SIZE = 50
         total = len(df_filtered)
+        start_time = time.time()
+        beto_calls = 0
+        groq_calls = 0
 
-        for idx, (_, row) in enumerate(df_filtered.iterrows()):
-            res = analyzer.analyze_sentiment_enhanced(str(row["Valor"]), classifier)
-            results.append(res)
-            if idx % 5 == 0 or idx == total - 1:
-                progress.progress((idx + 1) / total, text=f"Analizando {idx + 1}/{total}…")
+        progress_container = st.container()
+        with progress_container:
+            col_p1, col_p2, col_p3 = st.columns(3)
+            with col_p1:
+                progress = st.progress(0, text="Analizando sentimientos…")
+                status_text = st.empty()
+            with col_p2:
+                metric_beto = st.empty()
+            with col_p3:
+                metric_groq = st.empty()
+
+        for batch_start in range(0, total, BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, total)
+            batch_df = df_filtered.iloc[batch_start:batch_end]
+
+            for _, row in batch_df.iterrows():
+                res = analyzer.analyze_sentiment_enhanced(str(row["Valor"]), classifier)
+                results.append(res)
+                beto_calls += 1
+                if res.get("ai_validated", False):
+                    groq_calls += 1
+
+            # Actualizar progress bar cada lote
+            progress.progress(batch_end / total, text=f"Analizando {batch_end}/{total}…")
+            status_text.text(f"📊 Procesando: {batch_end}/{total} ({batch_end/total*100:.1f}%)")
+            metric_beto.metric("🤖 Análisis BETO", f"{beto_calls}", delta=f"+{len(batch_df)} en lote")
+            metric_groq.metric(
+                "🔍 Validaciones IA",
+                f"{groq_calls}",
+                delta=f"Ahorradas: {beto_calls - groq_calls}",
+            )
 
         progress.empty()
+        status_text.empty()
+        metric_beto.empty()
+        metric_groq.empty()
+
+        total_time = time.time() - start_time
+        avg_time = total_time / total if total > 0 else 0
+        groq_savings = ((beto_calls - groq_calls) / beto_calls * 100) if beto_calls > 0 else 0
 
         df_results = df_filtered.copy()
         _result_defaults = {
@@ -3650,7 +3729,27 @@ def main():
             df_results[key] = [r.get(key, _result_defaults[key]) for r in results]
 
         st.session_state["df_results"] = df_results
-        st.success(f"✅ Análisis completado: {total:,} respuestas procesadas")
+        st.session_state["performance_metrics"] = {
+            "total_analyzed": total,
+            "total_time": total_time,
+            "avg_time_per_text": avg_time,
+            "beto_calls": beto_calls,
+            "groq_calls": groq_calls,
+            "groq_savings_pct": groq_savings,
+            "batch_size": BATCH_SIZE,
+        }
+
+        with progress_container:
+            st.success(f"✅ Análisis completado en {total_time:.2f}s — {total:,} respuestas procesadas")
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("⚡ Tiempo promedio", f"{avg_time*1000:.1f}ms")
+            with c2:
+                st.metric("🤖 Llamadas BETO", f"{beto_calls}")
+            with c3:
+                st.metric("💰 Ahorro IA", f"{groq_savings:.1f}%")
+            with c4:
+                st.metric("📦 Lotes procesados", f"{(total + BATCH_SIZE - 1) // BATCH_SIZE}")
 
     if df_results is not None:
         if is_gestor:
