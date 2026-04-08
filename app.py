@@ -682,29 +682,19 @@ Genera un análisis ejecutivo (400-500 palabras) que incluya:
 **FORMATO:** Usa markdown con headers (##), bullets, negritas para KPIs, y citas bibliográficas al final.
 """
         elif es_intermediarios_per:
-            # Calcular estadísticas adicionales para intermediarios per
-            total_gestores = 0
-            total_intermediarios_per = 0
             distribucion_lineas = "N/A"
-            if "tipo_rol" in df_analyzed.columns:
-                total_gestores = (df_analyzed["tipo_rol"] == "Gestor").sum()
-                total_intermediarios_per = (df_analyzed["tipo_rol"] == "Intermediario").sum()
             if "linea_negocio" in df_analyzed.columns:
                 dist = df_analyzed["linea_negocio"].value_counts().to_dict()
                 distribucion_lineas = ", ".join([f"{k}: {v}" for k, v in dist.items()])
-            pct_gestores = total_gestores / total * 100 if total > 0 else 0
-            pct_intermediarios_per_val = total_intermediarios_per / total * 100 if total > 0 else 0
 
             fecha_actual = ctx["date_full"]
-            prompt = f"""Eres un analista estratégico senior especializado en canales de distribución de seguros y relaciones B2B2C en Colombia.
+            prompt = f"""Eres un analista estratégico senior especializado en gestión de canales de distribución de seguros y relaciones B2B2C en Colombia.
 
 **CONTEXTO:**
-Analizas la **percepción que tienen los Intermediarios (corredores/agentes) sobre la Compañía Aseguradora** como socio comercial estratégico.
+Analizas la **percepción que tienen los Intermediarios (corredores/agentes/brokers) sobre la Compañía Aseguradora** como socio comercial estratégico.
 
 **DATOS CLAVE:**
 - Total de valoraciones: {total}
-- Valoraciones sobre Colaboradores/Gestores: {total_gestores} ({pct_gestores:.1f}%)
-- Valoraciones sobre Representantes/Intermediarios: {total_intermediarios_per} ({pct_intermediarios_per_val:.1f}%)
 - Sentimiento positivo general: {pct_pos:.1f}%
 - Sentimiento negativo general: {pct_neg:.1f}%
 - Distribución por líneas: {distribucion_lineas}
@@ -714,68 +704,93 @@ Analizas la **percepción que tienen los Intermediarios (corredores/agentes) sob
 Genera un análisis ejecutivo estratégico (600-700 palabras) que proporcione **insumos valiosos** para decisiones de negocio:
 
 1. **DIAGNÓSTICO ESTRATÉGICO DE LA RELACIÓN INTERMEDIARIO-COMPAÑÍA** (200 palabras):
-   - ¿Qué tan sólida es la relación comercial con los intermediarios?
-   - Factores críticos que impulsan la lealtad del canal (comisiones, soporte, tecnología, agilidad)
-   - Puntos de dolor recurrentes que ponen en riesgo la relación (sistemas obsoletos, falta de comunicación, políticas rígidas)
-   - Diferencias entre percepción de colaboradores/gestores vs representantes/intermediarios
+   - ¿Qué tan sólida es la percepción de la compañía como socio comercial?
+   - Factores críticos de éxito percibidos por los intermediarios:
+     * **Comisiones y estructura de incentivos**
+     * **Soporte técnico y comercial** (disponibilidad, conocimiento, agilidad)
+     * **Plataformas tecnológicas** (portales, APIs, cotizadores, apps móviles)
+     * **Agilidad operativa** (emisión, siniestros, renovaciones)
+     * **Comunicación y transparencia** (cambios en productos, políticas, tarifas)
+   - Puntos de dolor recurrentes que ponen en riesgo la relación:
+     * Sistemas obsoletos o poco intuitivos
+     * Falta de comunicación anticipada de cambios
+     * Políticas de suscripción rígidas
+     * Tiempos de respuesta lentos
    - Comparación con competencia según comentarios (menciones de otras aseguradoras)
-   - Referencias: "Customer Effort Score (CES)" en canales B2B, NPS de intermediarios
+   - Referencias: **Customer Effort Score (CES)** en canales B2B, **NPS de intermediarios**
 
 2. **ANÁLISIS POR LÍNEA DE NEGOCIO: OPORTUNIDADES Y RIESGOS** (200 palabras):
-   - Líneas mejor valoradas: ¿Por qué? (Factores diferenciales: rapidez, comisiones, productos competitivos)
-   - Líneas con mayor insatisfacción: Causas raíz específicas (procesos complejos, falta de soporte, tarifas no competitivas)
-   - Ejemplos concretos:
-     * **Autos:** Rapidez en siniestros, plataforma digital, competencia con agregadores
-     * **Vida:** Estructura de comisiones, capacitación, claridad en productos
-     * **Fianzas/Generales:** Soporte técnico, conocimiento especializado de gestores
-   - Correlación con estrategia comercial y volumen de primas por línea
-   - Oportunidades de crecimiento identificadas
+   - **Líneas mejor valoradas:** ¿Por qué son las favoritas?
+     * Factores diferenciales: rapidez, comisiones competitivas, productos innovadores
+     * Ejemplos: Autos → rapidez en siniestros, Vida → estructura de comisiones clara
+   - **Líneas con mayor insatisfacción:** Causas raíz específicas
+     * Procesos complejos, falta de soporte técnico especializado
+     * Tarifas no competitivas, productos poco atractivos
+   - **Correlación con estrategia comercial:**
+     * Volumen de primas por línea vs. satisfacción de intermediarios
+     * Líneas con potencial de crecimiento si se mejoran puntos críticos
+   - **Oportunidades de mejora detectadas:**
+     * Simplificación de procesos
+     * Capacitación técnica por línea
+     * Mejoras en plataformas digitales
 
 3. **IMPACTO EN LEALTAD, PRODUCTIVIDAD Y RETENCIÓN DE CANAL** (150 palabras):
-   - Riesgo de **multi-agenciamiento** (intermediario trabaja con varias aseguradoras): ¿La compañía es primera opción o segunda opción?
-   - Correlación entre NPS de intermediarios y volumen de primas colocadas
-   - Análisis de retención de canales: ¿Hay señales de deserción? ¿Qué lo causa?
-   - Estudios relevantes:
+   - **Riesgo de multi-agenciamiento:** ¿La compañía es primera o segunda opción?
+     * Intermediarios que trabajan con 3+ aseguradoras → ¿Qué hace que elijan una sobre otra?
+   - **Correlación entre NPS y volumen de negocio:**
+     * Intermediarios satisfechos → Mayor volumen de primas colocadas
+     * Intermediarios insatisfechos → Riesgo de deserción o reducción de cuota
+   - **Análisis de retención de canales:**
+     * Señales de deserción en los comentarios (frustración, comparaciones negativas)
+     * Factores que fidelizan (reconocimientos, incentivos, trato preferencial)
+   - **Estudios relevantes:**
      * "B2B Loyalty" (Corporate Executive Board, 2012)
      * "The Effortless Experience" (Dixon, Freeman, Toman, 2013)
-   - Indicadores de salud del canal: frecuencia de contacto, tasa de respuesta, volumen de negocio por intermediario
+   - **Indicadores de salud del canal:**
+     * Frecuencia de contacto gestor-intermediario
+     * Tasa de respuesta a campañas comerciales
+     * Volumen de negocio por intermediario (tendencia)
 
 4. **RECOMENDACIONES ESTRATÉGICAS ACCIONABLES** (150 palabras):
-   - **Mejoras tecnológicas críticas:**
-     * Portales para intermediarios (cotización, emisión, consulta de comisiones)
-     * APIs para integración con sistemas de corredores
-     * Apps móviles para gestión de pólizas en campo
+   - **Mejoras tecnológicas prioritarias:**
+     * **Portales para intermediarios:** Cotización, emisión, consulta de comisiones en tiempo real
+     * **APIs para integración:** Sistemas de corredores conectados a la aseguradora
+     * **Apps móviles:** Gestión de pólizas en campo (visitas a clientes)
+     * **Automatización:** Procesos de renovación, carga de documentos, firma digital
    - **Programas de incentivos diferenciados por línea:**
-     * Bonos por cumplimiento de objetivos
-     * Comisiones por volumen o rentabilidad
-     * Reconocimientos por lealtad
+     * Bonos por cumplimiento de objetivos (volumen, rentabilidad, retención)
+     * Comisiones variables según línea de negocio
+     * Reconocimientos públicos (eventos, premios, viajes)
    - **Estrategias de comunicación y transparencia:**
-     * Notificación anticipada de cambios en productos/políticas
-     * Canales directos con gestores (WhatsApp Business, email dedicado)
-     * Webinars de capacitación por línea de negocio
+     * Notificación anticipada de cambios (productos, políticas, tarifas)
+     * Canales directos con gestores (WhatsApp Business, email dedicado, línea exclusiva)
+     * Webinars mensuales de capacitación por línea de negocio
+     * Newsletter con novedades, casos de éxito, tips de venta
    - **Capacitación técnica específica:**
-     * Conocimiento profundo de productos por línea
-     * Talleres de cierre de ventas complejas
-     * Actualización regulatoria (Superintendencia Financiera)
+     * Talleres presenciales por línea (conocimiento profundo de coberturas, exclusiones)
+     * Cursos online certificados (plataforma e-learning)
+     * Actualización regulatoria (Superintendencia Financiera, FASECOLDA)
    - **Quick wins por línea de negocio:**
-     * Autos: Acelerar tiempos de emisión
-     * Vida: Simplificar formularios de solicitud
-     * Fianzas: Mejorar comunicación de gestores especializados
+     * **Autos:** Reducir tiempo de emisión de 24h a 4h
+     * **Vida:** Simplificar formularios de solicitud (menos campos obligatorios)
+     * **Fianzas:** Asignar gestores especializados con respuesta en <2h
+     * **Salud:** Mejorar claridad en redes de prestadores
 
 **BENCHMARKING Y MEJORES PRÁCTICAS:**
-- FASECOLDA: "Estudio de Canales de Distribución de Seguros en Colombia"
-- McKinsey & Company: "B2B Decision Maker Pulse Survey"
-- Gartner: "Distribution Channel Management in Insurance Industry"
-- Harvard Business Review: "The New Science of Customer Emotions"
-- AIDA (Asociación Internacional de Derecho de Seguros): Mejores prácticas en relaciones con intermediarios
+- **FASECOLDA:** "Estudio de Canales de Distribución de Seguros en Colombia"
+- **McKinsey & Company:** "B2B Decision Maker Pulse Survey"
+- **Gartner:** "Distribution Channel Management in Insurance Industry"
+- **Harvard Business Review:** "The New Science of Customer Emotions"
+- **AIDA (Asociación Internacional de Derecho de Seguros):** Mejores prácticas en relaciones con intermediarios
+- **Accenture:** "Insurance Distribution & Marketing Consumer Study"
 
 **FORMATO:**
 - Usa markdown con headers (##), bullets, negritas para KPIs
 - Incluye sección de **Bibliografía** al final
 - Destaca métricas clave en **negritas**
-- Usa emojis estratégicos (📊 ⚠️ 🎯 💡 ✅ ⚡)
+- Usa emojis estratégicos (📊 ⚠️ 🎯 💡 ✅ ⚡ 🚀)
 
-**TONO:** Estratégico, analítico, orientado a decisiones de negocio, con foco en **insumos valiosos** para la alta dirección.
+**TONO:** Estratégico, analítico, orientado a decisiones de negocio, con foco en **insumos valiosos** para la alta dirección y gerencia de canales.
 """
         elif es_intermediarios:
             prompt = f"""Eres un analista senior de canales de distribución en seguros con 15 años de experiencia.
@@ -2460,11 +2475,14 @@ def render_tab_comments(df: pd.DataFrame):
         linea_label = str(row.get("linea_negocio", ATTRIBUTE_LABELS.get(row["Atributo"], row["Atributo"])))
         suc_label = str(row.get("Sucursal", "")).strip() if has_sucursal else ""
 
-        text_preview = str(row["Valor"])[:60].strip()
-        if len(str(row["Valor"])) > 60:
+        text_preview = str(row["Valor"])[:80].strip()
+        # Strip special/emoji characters that cause rendering overlap in expander titles.
+        # The leading 💬 emoji prefix was also removed for the same reason.
+        text_preview = re.sub(r'[^\w\s\.,;:¿?¡!áéíóúÁÉÍÓÚñÑüÜ-]', '', text_preview)
+        if len(str(row["Valor"])) > 80:
             text_preview += "..."
 
-        with st.expander(f"💬 {sent} — {text_preview}", expanded=False):
+        with st.expander(f"{sent} — {text_preview}", expanded=False):
             st.markdown("---")
             st.markdown("**📝 Comentario completo:**")
             st.info(row['Valor'])
@@ -3065,22 +3083,129 @@ def render_intermediarios_per_dashboard(df: pd.DataFrame):
     """Dashboard para modo Percepción Intermediario Cía."""
     st.subheader("🤝 Percepción de Intermediarios sobre la Compañía")
 
-    tab1, tab2, tab3 = st.tabs([
-        "👥 Valoración de Gestores",
-        "🏢 Valoración de Intermediarios",
-        "📊 Comparativa por Línea",
+    tab1, tab2 = st.tabs([
+        "📊 Dashboard General",
+        "📈 Análisis por Línea",
     ])
 
     with tab1:
-        df_gestores = df[df["tipo_rol"] == "Gestor"] if "tipo_rol" in df.columns else df
-        _render_rol_analysis(df_gestores, "Gestores")
+        st.markdown("### 📊 Percepción de Intermediarios sobre la Compañía")
+
+        total = len(df)
+        pct_pos = (df["sentiment"] == "POSITIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+        pct_neg = (df["sentiment"] == "NEGATIVO").mean() * 100 if "sentiment" in df.columns else 0.0
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📝 Total Valoraciones", f"{total:,}")
+        with col2:
+            st.metric("😊 % Positivo", f"{pct_pos:.1f}%")
+        with col3:
+            st.metric("😞 % Negativo", f"{pct_neg:.1f}%")
+
+        st.markdown("---")
+
+        # Sentimiento por Sucursal
+        if "Sucursal" in df.columns and "sentiment" in df.columns:
+            sucursales_unicas = df["Sucursal"].dropna().unique()
+            if len(sucursales_unicas) > 1 or (
+                len(sucursales_unicas) == 1 and sucursales_unicas[0] != "Sin Sucursal"
+            ):
+                st.markdown("### 🏢 Sentimiento por Sucursal")
+                suc_pivot = (
+                    df.groupby(["Sucursal", "sentiment"])
+                    .size()
+                    .reset_index(name="n")
+                )
+                suc_pivot["pct"] = suc_pivot.groupby("Sucursal")["n"].transform(
+                    lambda x: x / x.sum() * 100
+                )
+                fig_suc = px.bar(
+                    suc_pivot,
+                    x="Sucursal",
+                    y="pct",
+                    color="sentiment",
+                    color_discrete_map=SENTIMENT_COLORS_VIVID,
+                    barmode="stack",
+                    title="Distribución de Sentimientos por Sucursal",
+                    labels={"Sucursal": "Sucursal/Agencia", "pct": "Porcentaje (%)"},
+                )
+                fig_suc.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+                st.plotly_chart(fig_suc, use_container_width=True)
+
+        # Distribución por línea de negocio
+        if "linea_negocio" in df.columns and "sentiment" in df.columns:
+            st.markdown("### 📊 Sentimiento por Línea de Negocio")
+            linea_sent = (
+                df.groupby(["linea_negocio", "sentiment"])
+                .size()
+                .reset_index(name="count")
+            )
+            linea_sent["pct"] = linea_sent.groupby("linea_negocio")["count"].transform(
+                lambda x: x / x.sum() * 100
+            )
+            fig_linea = px.bar(
+                linea_sent,
+                x="linea_negocio",
+                y="pct",
+                color="sentiment",
+                color_discrete_map=SENTIMENT_COLORS_VIVID,
+                barmode="stack",
+                title="Distribución de Sentimientos por Línea",
+                labels={"linea_negocio": "Línea de Negocio", "pct": "Porcentaje (%)"},
+            )
+            fig_linea.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+            st.plotly_chart(fig_linea, use_container_width=True)
+
+        # Wordcloud / Bubble Chart
+        st.markdown("### ☁️ Nube de Palabras Clave")
+        all_text = " ".join(df["Valor"].astype(str))
+        if all_text.strip():
+            keywords = extract_keywords(all_text, top_n=50, min_length=4)
+            if keywords:
+                keywords_df = pd.DataFrame(keywords, columns=["keyword", "count"])
+                fig_bubble = create_bubble_chart(keywords_df, df, top_n=30)
+                st.plotly_chart(fig_bubble, use_container_width=True)
+
+        # Timeline
+        if "fecha" in df.columns and df["fecha"].notna().any():
+            st.markdown("### 📈 Evolución Temporal")
+            df_time = df.dropna(subset=["fecha"]).copy()
+            df_time["mes"] = df_time["fecha"].dt.to_period("M").astype(str)
+            time_pivot = (
+                df_time.groupby(["mes", "sentiment"])
+                .size()
+                .reset_index(name="n")
+            )
+            fig_line = px.line(
+                time_pivot,
+                x="mes",
+                y="n",
+                color="sentiment",
+                color_discrete_map=SENTIMENT_COLORS_VIVID,
+                markers=True,
+                title="Evolución de Sentimientos",
+                labels={"mes": "Mes", "n": "Cantidad"},
+            )
+            fig_line.update_layout(**PLOTLY_LAYOUT_TEMPLATE, height=420)
+            st.plotly_chart(fig_line, use_container_width=True)
 
     with tab2:
-        df_inter = df[df["tipo_rol"] == "Intermediario"] if "tipo_rol" in df.columns else df
-        _render_rol_analysis(df_inter, "Intermediarios")
-
-    with tab3:
-        _render_comparative_analysis(df)
+        st.markdown("### 📊 Análisis Comparativo por Línea")
+        if "linea_negocio" in df.columns and "sentiment" in df.columns:
+            summary = (
+                df.groupby("linea_negocio")["sentiment"]
+                .agg(
+                    Total="count",
+                    Pct_Positivo=lambda x: round((x == "POSITIVO").mean() * 100, 1),
+                    Pct_Negativo=lambda x: round((x == "NEGATIVO").mean() * 100, 1),
+                )
+                .reset_index()
+            )
+            summary.columns = ["Línea", "Total", "% Positivo", "% Negativo"]
+            st.dataframe(sanitize_df_for_streamlit(summary), use_container_width=True, hide_index=True)
+        else:
+            st.info("⚠️ No hay suficientes datos para análisis por línea.")
 
 
 # ── Pantalla de bienvenida ─────────────────────────────────────────────────────
