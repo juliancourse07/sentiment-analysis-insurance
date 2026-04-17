@@ -187,6 +187,12 @@ SENTIMENT_COLORS = {
     "MIXTO": "#8b5cf6",
 }
 
+# Patrón regex para eliminar nombres de íconos que puedan filtrarse a los textos de la UI
+_ICON_NAME_PATTERN = re.compile(
+    r'\.(arrow_right|arrow_forward|arrow_down|arrow_up|right|forward)\s*',
+    re.IGNORECASE,
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 # COLOR PALETTE - VERSIÓN MEJORADA CON COLORES MÁS VIVOS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2412,11 +2418,9 @@ def create_sunburst_subsegments(df: pd.DataFrame) -> go.Figure:
 
     # Limpiar nombres de íconos que puedan estar en la columna sub_sentiment
     df = df.copy()
-    df["sub_sentiment"] = df["sub_sentiment"].astype(str).str.replace(
-        r'\.(arrow_right|arrow_forward|arrow_down|arrow_up|right|forward)',
-        '',
-        regex=True,
-    ).str.strip()
+    df["sub_sentiment"] = df["sub_sentiment"].astype(str).apply(
+        lambda v: _ICON_NAME_PATTERN.sub('', v).strip()
+    )
 
     df_h = (
         df.groupby(["sentiment", "sub_sentiment"])
@@ -2475,11 +2479,9 @@ def create_heatmap_subsegments_linea(df: pd.DataFrame) -> go.Figure:
     df = _coerce_columns_1d(df, "sub_sentiment", "linea_negocio")
 
     # Limpiar nombres de íconos que puedan estar en la columna sub_sentiment
-    df["sub_sentiment"] = df["sub_sentiment"].astype(str).str.replace(
-        r'\.(arrow_right|arrow_forward|arrow_down|arrow_up)',
-        '',
-        regex=True,
-    ).str.strip()
+    df["sub_sentiment"] = df["sub_sentiment"].astype(str).apply(
+        lambda v: _ICON_NAME_PATTERN.sub('', v).strip()
+    )
 
     heatmap_data = pd.crosstab(df["sub_sentiment"], df["linea_negocio"])
     if heatmap_data.empty:
@@ -2966,8 +2968,7 @@ def render_tab_comments(df: pd.DataFrame):
         sub_sent = str(row.get("sub_sentiment", "")).strip() if has_sub_sentiment else ""
         # Eliminar nombres de íconos que puedan estar en el valor de sub_sentiment
         if sub_sent:
-            sub_sent = re.sub(r'\.(arrow_right|arrow_forward|arrow_down|arrow_up|right|forward)', '', sub_sent, flags=re.IGNORECASE)
-            sub_sent = sub_sent.strip()
+            sub_sent = _ICON_NAME_PATTERN.sub('', sub_sent).strip()
         sub_emoji = SUB_SENTIMENT_EMOJI.get(sub_sent, "") if sub_sent else ""
 
         text_preview = str(row["Valor"])[:60].strip()
@@ -2978,8 +2979,7 @@ def render_tab_comments(df: pd.DataFrame):
         # Eliminar espacios múltiples
         text_preview = re.sub(r'\s+', ' ', text_preview).strip()
         # Eliminar nombres de íconos que puedan estar en el texto de preview
-        text_preview = re.sub(r'\.(arrow_right|arrow_forward|arrow_down|arrow_up|right|forward)\s*', '', text_preview, flags=re.IGNORECASE)
-        text_preview = text_preview.strip()
+        text_preview = _ICON_NAME_PATTERN.sub('', text_preview).strip()
         if len(str(row["Valor"])) > 60:
             text_preview += "..."
 
