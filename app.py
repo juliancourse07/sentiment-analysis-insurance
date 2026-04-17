@@ -227,6 +227,166 @@ PLOTLY_LAYOUT_TEMPLATE = {
 # Benchmark de satisfacción del sector asegurador colombiano (%)
 SECTOR_BENCHMARK = 68
 
+# ── Sub-segmentos emocionales ──────────────────────────────────────────────────
+SUB_SENTIMENT_EMOJI: dict[str, str] = {
+    # POSITIVO
+    "Satisfacción": "😊",
+    "Gratitud": "🙏",
+    "Confianza": "🤝",
+    "Entusiasmo": "🌟",
+    "Alivio": "😌",
+    # NEUTRAL
+    "Informativo": "ℹ️",
+    "Indiferencia": "😐",
+    "Expectativa": "🕐",
+    "Confusión": "😕",
+    "Pragmático": "🤔",
+    # NEGATIVO
+    "Frustración": "😤",
+    "Enojo": "😠",
+    "Decepción": "😞",
+    "Ansiedad": "😰",
+    "Desconfianza": "🤨",
+    "Desesperación": "😩",
+    # MIXTO
+    "Ambivalencia": "🔄",
+    "Resignación Positiva": "🤷",
+    "Crítica Constructiva": "💡",
+    "Esperanza Cautelosa": "🌤️",
+    "Gratitud con Queja": "🙏😤",
+}
+
+SUB_SENTIMENT_DEFINITIONS: dict[str, str] = {
+    "Satisfacción": "Cliente contento con el servicio recibido",
+    "Gratitud": "Agradecimiento explícito hacia la empresa/agente",
+    "Confianza": "Expresiones de seguridad y credibilidad en la aseguradora",
+    "Entusiasmo": "Alta energía positiva, recomendaciones activas",
+    "Alivio": "Tranquilidad después de resolver un problema/siniestro",
+    "Informativo": "Comunicación factual sin carga emocional",
+    "Indiferencia": "Falta de involucramiento emocional",
+    "Expectativa": "Esperando respuesta o resolución sin expresar emoción",
+    "Confusión": "No comprende procesos pero sin frustración evidente",
+    "Pragmático": "Enfoque transaccional, solo busca información",
+    "Frustración": "Molestia por procesos lentos/complicados",
+    "Enojo": "Insatisfacción intensa, posible escalamiento",
+    "Decepción": "Expectativas no cumplidas",
+    "Ansiedad": "Inquietud por coberturas, pagos o tiempos",
+    "Desconfianza": "Cuestionamiento de políticas o intenciones",
+    "Desesperación": "Urgencia extrema sin respuesta adecuada",
+    "Ambivalencia": "Sentimientos contradictorios simultáneos",
+    "Resignación Positiva": "Acepta limitaciones pero valora esfuerzos",
+    "Crítica Constructiva": "Negativo con sugerencias de mejora",
+    "Esperanza Cautelosa": "Optimismo con reservas",
+    "Gratitud con Queja": "Agradece pero señala problemas",
+}
+
+SUB_SENTIMENT_KEYWORDS: dict[str, set[str]] = {
+    # POSITIVO
+    "Satisfacción": {
+        "satisfecho", "satisfecha", "satisfechos", "contento", "contenta",
+        "cumplió", "agradable", "conforme", "gustó", "gusta", "feliz",
+    },
+    "Gratitud": {
+        "gracias", "agradezco", "agradecido", "agradecida", "agradecer",
+        "bendiciones", "agradecemos", "reconocer", "reconozco",
+    },
+    "Confianza": {
+        "confianza", "confiable", "seguro", "segura", "credibilidad",
+        "respaldo", "garantía", "garantia", "fiable", "sólido", "solido",
+    },
+    "Entusiasmo": {
+        "excelente", "genial", "increíble", "increible", "maravilloso",
+        "fantástico", "fantastico", "estupendo", "recomendaría",
+        "recomendaria", "recomiendo", "recomendaríamos",
+    },
+    "Alivio": {
+        "alivio", "tranquilo", "tranquila", "tranquilidad", "resuelto",
+        "resuelta", "solucionado", "finalmente", "por fin", "al fin",
+    },
+    # NEUTRAL
+    "Informativo": {
+        "información", "informacion", "informa", "indica", "documenta",
+        "documentación", "documentacion", "procedimiento", "trámite",
+        "tramite", "proceso", "requisito",
+    },
+    "Indiferencia": {
+        "indiferente", "igual", "irrelevante", "básico", "basico",
+        "normal", "regular", "corriente",
+    },
+    "Expectativa": {
+        "espero", "esperando", "pendiente", "aguardando", "ojalá",
+        "ojala", "en espera", "pronto", "await",
+    },
+    "Confusión": {
+        "confuso", "confusa", "no entiendo", "no entendí", "aclarar",
+        "dudas", "duda", "no claro", "complejo", "complicado",
+    },
+    "Pragmático": {
+        "necesito saber", "cuánto cuesta", "cuanto cuesta", "precio",
+        "costo", "tarifa", "cotización", "cotizacion", "solo necesito",
+        "solo quiero",
+    },
+    # NEGATIVO
+    "Frustración": {
+        "frustrante", "frustrado", "frustrada", "molesto", "molesta",
+        "cansado", "cansada", "harto", "harta", "desesperante",
+        "lento", "demora", "tardaron", "espera",
+    },
+    "Enojo": {
+        "enojado", "enojada", "indignado", "indignada", "furioso",
+        "furiosa", "inaceptable", "intolerable", "vergonzoso",
+        "pésimo", "pesimo",
+    },
+    "Decepción": {
+        "decepcionado", "decepcionada", "decepción", "decepcion",
+        "esperaba", "no cumplió", "no esperaba", "mal servicio",
+        "deficiente",
+    },
+    "Ansiedad": {
+        "ansioso", "ansiosa", "preocupado", "preocupada", "inquieto",
+        "inquieta", "incertidumbre", "no sé", "nervioso", "nerviosa",
+    },
+    "Desconfianza": {
+        "desconfianza", "sospechoso", "sospecha", "trampa", "engaño",
+        "engano", "abuso", "no creo", "dudo", "mentira",
+    },
+    "Desesperación": {
+        "desesperado", "desesperada", "urgente", "urgencia", "nadie",
+        "abandonado", "abandonada", "sin solución", "sin solucion",
+        "ayuda", "auxilio",
+    },
+    # MIXTO
+    "Ambivalencia": {
+        "pero", "aunque", "sin embargo", "a pesar", "por otro lado",
+        "al mismo tiempo", "no obstante",
+    },
+    "Resignación Positiva": {
+        "resignado", "resignada", "al menos", "por lo menos",
+        "entiendo que", "comprendo que", "acepto",
+    },
+    "Crítica Constructiva": {
+        "mejorar", "sugerencia", "recomiendo", "sería mejor",
+        "seria mejor", "podrían", "podrian", "debería", "deberia",
+        "propongo",
+    },
+    "Esperanza Cautelosa": {
+        "espero que", "ojalá que", "quizás", "quizas", "tal vez",
+        "posiblemente", "puede que", "ojala mejore",
+    },
+    "Gratitud con Queja": {
+        "gracias pero", "agradezco pero", "aunque tengo", "sin embargo tengo",
+        "a pesar de todo", "agradecido pero",
+    },
+}
+
+# Sub-segmentos válidos por sentimiento principal
+SUB_SENTIMENTS_BY_MAIN: dict[str, list[str]] = {
+    "POSITIVO": ["Satisfacción", "Gratitud", "Confianza", "Entusiasmo", "Alivio"],
+    "NEUTRAL": ["Informativo", "Indiferencia", "Expectativa", "Confusión", "Pragmático"],
+    "NEGATIVO": ["Frustración", "Enojo", "Decepción", "Ansiedad", "Desconfianza", "Desesperación"],
+    "MIXTO": ["Ambivalencia", "Resignación Positiva", "Crítica Constructiva", "Esperanza Cautelosa", "Gratitud con Queja"],
+}
+
 SPANISH_STOPWORDS = {
     "de", "la", "que", "el", "en", "y", "a", "los", "del", "se", "las",
     "un", "por", "con", "una", "su", "para", "es", "al", "lo", "como",
@@ -473,6 +633,7 @@ class SentimentAnalyzer:
 
         # Decisión
         has_intensifier = any(w in self.INTENSIFIERS for w in clean.split())
+        _ai_sub: str | None = None  # sub_sentiment retornado por Groq, si disponible
         if beto_vote and keyword_vote == beto_vote and beto_conf >= 0.75:
             # Consenso fuerte: ambos coinciden con alta confianza
             final_label = beto_vote
@@ -499,6 +660,7 @@ class SentimentAnalyzer:
                 final_label = ai_result["label"]
                 final_conf = ai_result["confidence"]
                 ai_used = True
+                _ai_sub = ai_result.get("sub_sentiment")
             else:
                 # IA no disponible: usar BETO con confianza reducida, pero reforzar con keywords
                 fallback = beto_vote or keyword_vote
@@ -521,7 +683,7 @@ class SentimentAnalyzer:
 
         score_map = {"POSITIVO": 1.0, "NEGATIVO": -1.0, "NEUTRAL": 0.0, "MIXTO": 0.5}
 
-        return {
+        result = {
             "sentiment": final_label,
             "score": score_map.get(final_label, 0.0),
             "confidence": round(final_conf, 4),
@@ -529,13 +691,21 @@ class SentimentAnalyzer:
             "keywords_neg": neg_kw,
             "ai_validated": ai_used,
         }
+        if _ai_sub:
+            result["sub_sentiment"] = _ai_sub
+        return result
 
     # Confidence assigned to Groq quick-classify responses; represents measured
     # reliability of single-label classification at temperature=0.2
     _GROQ_CLASSIFY_CONFIDENCE = 0.88
 
     def _groq_quick_classify(self, text: str) -> dict | None:
-        """Clasificación rápida con Groq para casos dudosos."""
+        """
+        Clasificación rápida con Groq para casos dudosos.
+
+        Retorna dict con keys: label, confidence, y opcionalmente sub_sentiment.
+        Usa el formato SENTIMIENTO|SUB_SENTIMIENTO para clasificar en una sola llamada.
+        """
         if not self.groq_token:
             return None
 
@@ -548,7 +718,17 @@ class SentimentAnalyzer:
                 messages=[
                     {
                         "role": "system",
-                        "content": "Clasifica sentimientos en el sector asegurador colombiano. Responde SOLO: POSITIVO, NEGATIVO, NEUTRAL o MIXTO",
+                        "content": (
+                            "Clasifica sentimientos en el sector asegurador colombiano. "
+                            "Responde SOLO con el formato: SENTIMIENTO|SUB_SENTIMIENTO\n"
+                            "Sentimientos válidos: POSITIVO, NEGATIVO, NEUTRAL, MIXTO\n"
+                            "Sub-sentimientos POSITIVO: Satisfacción, Gratitud, Confianza, Entusiasmo, Alivio\n"
+                            "Sub-sentimientos NEGATIVO: Frustración, Enojo, Decepción, Ansiedad, Desconfianza, Desesperación\n"
+                            "Sub-sentimientos NEUTRAL: Informativo, Indiferencia, Expectativa, Confusión, Pragmático\n"
+                            "Sub-sentimientos MIXTO: Ambivalencia, Resignación Positiva, Crítica Constructiva, "
+                            "Esperanza Cautelosa, Gratitud con Queja\n"
+                            "Ejemplo: NEGATIVO|Frustración"
+                        ),
                     },
                     {
                         "role": "user",
@@ -556,16 +736,108 @@ class SentimentAnalyzer:
                     },
                 ],
                 temperature=0.2,
-                max_tokens=10,
+                max_tokens=30,
             )
 
-            label = response.choices[0].message.content.strip().upper()
+            raw = response.choices[0].message.content.strip()
+            parts = raw.split("|")
+            label = parts[0].strip().upper()
+
             if label in ("POSITIVO", "NEGATIVO", "NEUTRAL", "MIXTO"):
-                return {"label": label, "confidence": self._GROQ_CLASSIFY_CONFIDENCE}
+                result: dict = {"label": label, "confidence": self._GROQ_CLASSIFY_CONFIDENCE}
+                if len(parts) > 1:
+                    sub_raw = parts[1].strip()
+                    valid_subs = SUB_SENTIMENTS_BY_MAIN.get(label, [])
+                    matched = next(
+                        (s for s in valid_subs if s.lower() == sub_raw.lower()), None
+                    )
+                    if matched:
+                        result["sub_sentiment"] = matched
+                return result
         except Exception:
             pass
 
         return None
+
+    def classify_sub_sentiment(self, text: str, main_sentiment: str) -> str:
+        """
+        Clasifica el sub-segmento emocional dentro del sentimiento principal.
+
+        Utiliza tres capas:
+        1. Matching de keywords específicos por sub-segmento.
+        2. Reglas contextuales de refuerzo.
+        3. Fallback al sub-segmento más genérico del sentimiento.
+
+        Args:
+            text: Texto original del comentario.
+            main_sentiment: Sentimiento principal ya clasificado (POSITIVO, NEGATIVO, NEUTRAL, MIXTO).
+
+        Returns:
+            Nombre del sub-segmento emocional detectado.
+        """
+        clean = self.preprocess_text(text)
+        words = set(clean.split())
+
+        candidates = SUB_SENTIMENTS_BY_MAIN.get(main_sentiment, [])
+        if not candidates:
+            return "Informativo"
+
+        # Capa 1: Scoring por keywords
+        scores: dict[str, float] = {sub: 0.0 for sub in candidates}
+        for sub in candidates:
+            kw_set = SUB_SENTIMENT_KEYWORDS.get(sub, set())
+            for kw in kw_set:
+                kw_words = kw.split()
+                if len(kw_words) == 1:
+                    if kw in words:
+                        scores[sub] += 1.0
+                else:
+                    # Frases: doble peso si aparecen como substring
+                    if kw in clean:
+                        scores[sub] += 2.0
+
+        # Capa 2: Reglas contextuales de refuerzo
+        if main_sentiment == "POSITIVO":
+            if any(w in words for w in {"gracias", "agradezco", "agradecido", "agradecida"}):
+                scores["Gratitud"] = scores.get("Gratitud", 0.0) + 3.0
+            if any(w in words for w in {"resuelto", "solucionado", "finalmente", "por fin", "al fin"}):
+                scores["Alivio"] = scores.get("Alivio", 0.0) + 2.0
+            if any(w in words for w in {"recomendaría", "recomendaria", "recomiendo", "excelente", "genial"}):
+                scores["Entusiasmo"] = scores.get("Entusiasmo", 0.0) + 2.0
+
+        elif main_sentiment == "NEGATIVO":
+            if any(w in words for w in {"lento", "demora", "tardaron", "espera", "horas", "días"}):
+                scores["Frustración"] = scores.get("Frustración", 0.0) + 2.0
+            if any(w in words for w in {"urgente", "urgencia", "nadie", "abandonado", "abandonada", "ayuda"}):
+                scores["Desesperación"] = scores.get("Desesperación", 0.0) + 2.0
+            if "no" in words and any(w in words for w in {"creo", "confio", "fio", "confío"}):
+                scores["Desconfianza"] = scores.get("Desconfianza", 0.0) + 2.0
+            if any(w in words for w in {"esperaba", "prometieron", "ofrecieron"}):
+                scores["Decepción"] = scores.get("Decepción", 0.0) + 2.0
+
+        elif main_sentiment == "MIXTO":
+            if any(w in words for w in {"gracias", "agradezco"}) and any(
+                w in words for w in {"pero", "aunque", "embargo", "sin embargo"}
+            ):
+                scores["Gratitud con Queja"] = scores.get("Gratitud con Queja", 0.0) + 3.0
+            if any(w in words for w in {"mejorar", "sugerencia", "debería", "podrían", "propongo"}):
+                scores["Crítica Constructiva"] = scores.get("Crítica Constructiva", 0.0) + 2.0
+            if any(w in words for w in {"espero que", "ojalá", "quizás", "tal vez"}):
+                scores["Esperanza Cautelosa"] = scores.get("Esperanza Cautelosa", 0.0) + 2.0
+
+        # Fallbacks por sentimiento
+        _fallback = {
+            "POSITIVO": "Satisfacción",
+            "NEUTRAL": "Informativo",
+            "NEGATIVO": "Frustración",
+            "MIXTO": "Ambivalencia",
+        }
+
+        best = max(scores, key=lambda k: scores[k])
+        if scores[best] == 0.0:
+            return _fallback.get(main_sentiment, candidates[0])
+
+        return best
 
 
 # ── IA Contextual: Sector Asegurador Colombiano ────────────────────────────────
@@ -2121,6 +2393,94 @@ def create_bubble_chart(
     return fig
 
 
+def create_sunburst_subsegments(df: pd.DataFrame) -> go.Figure:
+    """
+    Crea un gráfico sunburst interactivo que muestra la jerarquía
+    Sentimiento → Sub-segmento con drill-down y hover details.
+
+    Args:
+        df: DataFrame con columnas 'sentiment' y 'sub_sentiment'.
+
+    Returns:
+        Figura Plotly Sunburst, o Figure vacía si faltan datos.
+    """
+    if "sub_sentiment" not in df.columns or df.empty:
+        return go.Figure()
+
+    df_h = (
+        df.groupby(["sentiment", "sub_sentiment"])
+        .size()
+        .reset_index(name="count")
+    )
+
+    if df_h.empty:
+        return go.Figure()
+
+    fig = px.sunburst(
+        df_h,
+        path=["sentiment", "sub_sentiment"],
+        values="count",
+        color="sentiment",
+        color_discrete_map=SENTIMENT_COLORS_VIVID,
+        title="🌞 Jerarquía de Sentimientos y Sub-segmentos",
+    )
+    fig.update_layout(
+        **PLOTLY_LAYOUT_TEMPLATE,
+        height=550,
+    )
+    fig.update_traces(
+        textinfo="label+percent parent",
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "%{value} comentarios<br>"
+            "%{percentParent:.1%} del segmento principal"
+            "<extra></extra>"
+        ),
+    )
+    return fig
+
+
+def create_heatmap_subsegments_linea(df: pd.DataFrame) -> go.Figure:
+    """
+    Crea un heatmap de Sub-segmentos × Línea de Negocio.
+
+    Usa escala RdYlGn_r (Rojo=alta frecuencia) para detectar patrones como
+    "Autos tiene más Frustración que Vida".
+
+    Args:
+        df: DataFrame con columnas 'sub_sentiment' y 'linea_negocio'.
+
+    Returns:
+        Figura Plotly Heatmap, o Figure vacía si faltan datos.
+    """
+    if (
+        "sub_sentiment" not in df.columns
+        or "linea_negocio" not in df.columns
+        or df.empty
+    ):
+        return go.Figure()
+
+    heatmap_data = pd.crosstab(df["sub_sentiment"], df["linea_negocio"])
+    if heatmap_data.empty:
+        return go.Figure()
+
+    fig = px.imshow(
+        heatmap_data,
+        color_continuous_scale="RdYlGn_r",
+        title="🔥 Mapa de Calor: Sub-segmentos × Línea de Negocio",
+        labels={"x": "Línea de Negocio", "y": "Sub-segmento", "color": "Frecuencia"},
+        aspect="auto",
+        text_auto=True,
+    )
+    fig.update_layout(
+        **PLOTLY_LAYOUT_TEMPLATE,
+        height=520,
+        xaxis=dict(tickangle=-30, tickfont=dict(size=12, color="#1e3a8a")),
+        yaxis=dict(tickfont=dict(size=12, color="#1e3a8a")),
+    )
+    return fig
+
+
 # ── Renderizado de tabs ────────────────────────────────────────────────────────
 def render_tab_dashboard(df: pd.DataFrame):
     st.subheader("📊 Dashboard Premium")
@@ -2152,6 +2512,23 @@ def render_tab_dashboard(df: pd.DataFrame):
     c3.metric("😞 % Negativos", f"{pct_neg:.1f}%", delta=f"{-(pct_neg - 50):.1f}pp", delta_color="inverse")
     c4.metric("⭐ Score promedio", f"{df['score'].mean():.2f}")
     c5.metric("🎯 Confianza modelo", f"{avg_conf:.1f}%")
+
+    # Top 3 sub-segmentos más frecuentes
+    if "sub_sentiment" in df.columns and df["sub_sentiment"].notna().any():
+        top_subs = df["sub_sentiment"].value_counts().head(3)
+        if not top_subs.empty:
+            st.markdown("**🔥 Top 3 Sub-segmentos más frecuentes**")
+            cols_sub = st.columns(3)
+            for i, (sub, count) in enumerate(top_subs.items()):
+                pct_sub = count / total * 100
+                emoji = SUB_SENTIMENT_EMOJI.get(str(sub), "💡")
+                with cols_sub[i]:
+                    st.metric(
+                        label=f"{emoji} {sub}",
+                        value=f"{count:,}",
+                        delta=f"{pct_sub:.1f}% del total",
+                        help=SUB_SENTIMENT_DEFINITIONS.get(str(sub), ""),
+                    )
 
     st.markdown("---")
 
@@ -2233,6 +2610,18 @@ def render_tab_dashboard(df: pd.DataFrame):
             yaxis=dict(title="Porcentaje (%)", tickfont=dict(size=12, color="#475569")),
         )
         st.plotly_chart(fig_bar, use_container_width=True)
+
+    # Sunburst de sub-segmentos (después del gráfico de barras por línea)
+    if "sub_sentiment" in df.columns:
+        fig_sunburst = create_sunburst_subsegments(df)
+        if fig_sunburst.data:
+            st.plotly_chart(fig_sunburst, use_container_width=True)
+
+    # Heatmap sub-segmentos × línea de negocio
+    if "sub_sentiment" in df.columns and "linea_negocio" in df.columns:
+        fig_heatmap_sub = create_heatmap_subsegments_linea(df)
+        if fig_heatmap_sub.data:
+            st.plotly_chart(fig_heatmap_sub, use_container_width=True)
 
     # Sentiment breakdown by Sucursal
     if "Sucursal" in df.columns and df["Sucursal"].str.strip().ne("").any():
@@ -2432,7 +2821,16 @@ def render_tab_comments(df: pd.DataFrame):
             neu_s = gp_suc.loc[s].get("NEUTRAL", 0) / total_s * 100 if total_s else 0
             suc_stats[s] = f"{pos_s:.0f}% Pos / {neg_s:.0f}% Neg / {neu_s:.0f}% Neu"
 
-    col1, col2, col3, col4 = st.columns(4) if has_sucursal else st.columns(3)
+    has_sub_sentiment = "sub_sentiment" in df.columns and df["sub_sentiment"].notna().any()
+
+    # Build column layout dynamically based on available filters
+    if has_sucursal and has_sub_sentiment:
+        col1, col2, col3, col4, col5 = st.columns(5)
+    elif has_sucursal or has_sub_sentiment:
+        col1, col2, col3, col4 = st.columns(4)
+    else:
+        col1, col2, col3 = st.columns(3)
+
     with col1:
         sents = st.multiselect(
             "Filtrar por sentimiento",
@@ -2446,7 +2844,28 @@ def render_tab_comments(df: pd.DataFrame):
             options=lines,
             default=lines,
         )
-    if has_sucursal:
+
+    selected_suc = []
+    selected_sub_sents = []
+
+    if has_sucursal and has_sub_sentiment:
+        with col3:
+            suc_options = sorted(df.loc[df["Sucursal"].str.strip() != "", "Sucursal"].unique())
+            selected_suc = st.multiselect(
+                "Filtrar por Sucursal",
+                options=suc_options,
+                default=suc_options,
+            )
+        with col4:
+            sub_options = sorted(df["sub_sentiment"].dropna().unique())
+            selected_sub_sents = st.multiselect(
+                "Filtrar por sub-segmento",
+                options=sub_options,
+                default=sub_options,
+            )
+        with col5:
+            min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
+    elif has_sucursal:
         with col3:
             suc_options = sorted(df.loc[df["Sucursal"].str.strip() != "", "Sucursal"].unique())
             selected_suc = st.multiselect(
@@ -2456,8 +2875,17 @@ def render_tab_comments(df: pd.DataFrame):
             )
         with col4:
             min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
+    elif has_sub_sentiment:
+        with col3:
+            sub_options = sorted(df["sub_sentiment"].dropna().unique())
+            selected_sub_sents = st.multiselect(
+                "Filtrar por sub-segmento",
+                options=sub_options,
+                default=sub_options,
+            )
+        with col4:
+            min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
     else:
-        selected_suc = []
         with col3:
             min_conf = st.slider("Confianza mínima (%)", 0, 100, 0) / 100
 
@@ -2466,6 +2894,8 @@ def render_tab_comments(df: pd.DataFrame):
         mask &= df["linea_negocio"].isin(selected_lines)
     if selected_suc and has_sucursal:
         mask &= df["Sucursal"].isin(selected_suc)
+    if selected_sub_sents and has_sub_sentiment:
+        mask &= df["sub_sentiment"].isin(selected_sub_sents)
 
     filtered = df[mask].head(50)
     st.markdown(f"**Mostrando {len(filtered)} de {mask.sum()} comentarios filtrados**")
@@ -2475,6 +2905,8 @@ def render_tab_comments(df: pd.DataFrame):
         color_class = f"sentiment-{sent.lower()}"
         linea_label = str(row.get("linea_negocio", ATTRIBUTE_LABELS.get(row["Atributo"], row["Atributo"])))
         suc_label = str(row.get("Sucursal", "")).strip() if has_sucursal else ""
+        sub_sent = str(row.get("sub_sentiment", "")).strip() if has_sub_sentiment else ""
+        sub_emoji = SUB_SENTIMENT_EMOJI.get(sub_sent, "") if sub_sent else ""
 
         text_preview = str(row["Valor"])[:100].strip()
         # Descomponer Unicode NFKD y luego eliminar caracteres no básicos con regex
@@ -2486,13 +2918,18 @@ def render_tab_comments(df: pd.DataFrame):
         if len(str(row["Valor"])) > 100:
             text_preview += "..."
 
-        with st.expander(f"{sent} | {text_preview}", expanded=False):
+        # Título del expander con emoji de sub-segmento
+        sub_label_part = f" {sub_emoji} {sub_sent}" if sub_sent else ""
+        with st.expander(f"{sent}{sub_label_part} | {text_preview}", expanded=False):
             st.markdown("---")
             st.markdown("**📝 Comentario completo:**")
             st.info(row['Valor'])
 
             st.markdown("---")
-            c1, c2, c3 = st.columns(3)
+            if sub_sent:
+                c1, c2, c3, c4 = st.columns(4)
+            else:
+                c1, c2, c3 = st.columns(3)
             ai_badge = "🤖 " if row.get("ai_validated", False) else ""
 
             with c1:
@@ -2518,6 +2955,14 @@ def render_tab_comments(df: pd.DataFrame):
                     value=linea_display,
                     help="Línea de negocio asociada"
                 )
+
+            if sub_sent:
+                with c4:
+                    st.metric(
+                        label="Sub-segmento",
+                        value=f"{sub_emoji} {sub_sent}",
+                        help=SUB_SENTIMENT_DEFINITIONS.get(sub_sent, ""),
+                    )
 
             if line_stats.get(linea_label):
                 st.caption(f"Desglose Línea — {line_stats[linea_label]}")
@@ -2747,6 +3192,22 @@ def render_tab_export(df: pd.DataFrame):
                 .reset_index()
             )
             attr_summary.to_excel(writer, sheet_name="Por_Atributo", index=False)
+
+            # Hoja de sub-segmentos emocionales (nueva)
+            if "sub_sentiment" in df.columns:
+                sub_summary = (
+                    df.groupby(["sub_sentiment", "sentiment"])
+                    .agg(
+                        cantidad=("sub_sentiment", "count"),
+                        confianza_prom=("confidence", "mean"),
+                    )
+                    .round(3)
+                    .reset_index()
+                )
+                sub_summary.columns = [
+                    "Sub-segmento", "Sentimiento Principal", "Cantidad", "Confianza Prom."
+                ]
+                sub_summary.to_excel(writer, sheet_name="Por_Sub_Segmento", index=False)
 
         excel_data = output.getvalue()
         st.download_button(
@@ -3692,6 +4153,11 @@ def main():
 
             for _, row in batch_df.iterrows():
                 res = analyzer.analyze_sentiment_enhanced(str(row["Valor"]), classifier)
+                # Clasificar sub-segmento si la IA no lo retornó ya
+                if "sub_sentiment" not in res:
+                    res["sub_sentiment"] = analyzer.classify_sub_sentiment(
+                        str(row["Valor"]), res["sentiment"]
+                    )
                 results.append(res)
                 beto_calls += 1
                 if res.get("ai_validated", False):
@@ -3724,6 +4190,7 @@ def main():
             "keywords_pos": 0,
             "keywords_neg": 0,
             "ai_validated": False,
+            "sub_sentiment": "Informativo",
         }
         for key in _result_defaults:
             df_results[key] = [r.get(key, _result_defaults[key]) for r in results]
