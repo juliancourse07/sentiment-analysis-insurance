@@ -2941,6 +2941,8 @@ def render_tab_comments(df: pd.DataFrame):
     filtered = df[mask].head(50)
     st.markdown(f"**Mostrando {len(filtered)} de {mask.sum()} comentarios filtrados**")
 
+    CATEGORY_EMOJI = {"POSITIVO": "😊", "NEGATIVO": "😠", "NEUTRAL": "😐", "MIXTO": "🔄"}
+
     for _, row in filtered.iterrows():
         sent = row["sentiment"]
         color_class = f"sentiment-{sent.lower()}"
@@ -2959,11 +2961,12 @@ def render_tab_comments(df: pd.DataFrame):
         if len(str(row["Valor"])) > 60:
             text_preview += "..."
 
-        # Título del expander con emoji de sub-segmento e ícono de categoría
-        CATEGORY_ICONS = {"POSITIVO": "➕", "NEGATIVO": "➖", "NEUTRAL": "⚪", "MIXTO": "🔄"}
-        cat_icon = CATEGORY_ICONS.get(sent, "")
-        sub_label_part = f" {sub_emoji} **{sub_sent}** ·" if sub_sent else " ·"
-        expander_title = f"{cat_icon}{sub_label_part} {text_preview}"
+        # Título del expander con emojis Unicode directos (sin nombres de íconos)
+        cat_emoji = CATEGORY_EMOJI.get(sent, "")
+        if sub_sent:
+            expander_title = f"{cat_emoji} {sub_emoji} {sub_sent} · {text_preview}"
+        else:
+            expander_title = f"{cat_emoji} {sent} · {text_preview}"
         with st.expander(expander_title, expanded=False):
             st.markdown("---")
             st.markdown("**📝 Comentario completo:**")
@@ -4242,6 +4245,22 @@ def main():
                 "❌ No se encontraron respuestas con los atributos seleccionados. "
                 "Verifica que el archivo tenga columnas Atributo/Valor con preguntas abiertas."
             )
+            return
+
+        # Aplicar filtro de fecha ANTES del análisis para evitar procesar registros innecesarios
+        if selected_fecha_range is not None:
+            fecha_col_name, fecha_desde, fecha_hasta = selected_fecha_range
+            if fecha_col_name in df_filtered.columns:
+                fechas_parsed = pd.to_datetime(df_filtered[fecha_col_name], errors="coerce")
+                mask_fecha = (
+                    (fechas_parsed.dt.date >= fecha_desde)
+                    & (fechas_parsed.dt.date <= fecha_hasta)
+                )
+                df_filtered = df_filtered[mask_fecha].reset_index(drop=True)
+                st.info(f"📅 Filtrado por fechas antes del análisis: {fecha_desde} a {fecha_hasta} ({len(df_filtered):,} registros)")
+
+        if df_filtered.empty:
+            st.warning("⚠️ No hay registros en el rango de fechas seleccionado.")
             return
 
         analyzer = SentimentAnalyzer()
