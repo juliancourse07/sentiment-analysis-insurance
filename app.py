@@ -2447,8 +2447,8 @@ def create_heatmap_subsegments_linea(df: pd.DataFrame) -> go.Figure:
     """
     Crea un heatmap de Sub-segmentos × Línea de Negocio.
 
-    Usa escala RdYlGn_r (Rojo=alta frecuencia) para detectar patrones como
-    "Autos tiene más Frustración que Vida".
+    Muestra PORCENTAJE por columna en cada celda y etiquetas de categoría
+    principal junto al sub-sentimiento (ej: "Frustración [NEG]").
 
     Args:
         df: DataFrame con columnas 'sub_sentiment' y 'linea_negocio'.
@@ -2463,23 +2463,60 @@ def create_heatmap_subsegments_linea(df: pd.DataFrame) -> go.Figure:
     ):
         return go.Figure()
 
+    # Coerce to 1D strings
+    df = _coerce_columns_1d(df, "sub_sentiment", "linea_negocio")
+
     heatmap_data = pd.crosstab(df["sub_sentiment"], df["linea_negocio"])
     if heatmap_data.empty:
         return go.Figure()
 
+    # Calcular porcentajes por columna (línea de negocio)
+    col_totals = heatmap_data.sum(axis=0)
+    heatmap_pct = heatmap_data.div(col_totals, axis=1) * 100
+
+    # Mapear cada sub-sentimiento a su abreviatura de categoría
+    cat_abbrev = {"POSITIVO": "POS", "NEGATIVO": "NEG", "NEUTRAL": "NEU", "MIXTO": "MIX"}
+    cat_map: dict[str, str] = {}
+    for cat, subs in SUB_SENTIMENTS_BY_MAIN.items():
+        for sub in subs:
+            cat_map[sub] = cat_abbrev[cat]
+
+    # Renombrar índice con etiquetas de categoría
+    new_index = [
+        f"{sub} [{cat_map.get(sub, '?')}]"
+        for sub in heatmap_pct.index
+    ]
+    heatmap_pct.index = new_index
+    heatmap_data.index = new_index
+
+    # Texto hover: "N (X.X%)"
+    hover_text = []
+    for i in range(len(heatmap_pct.index)):
+        row_text = []
+        for j in range(len(heatmap_pct.columns)):
+            count = int(heatmap_data.iloc[i, j])
+            pct = heatmap_pct.iloc[i, j]
+            row_text.append(f"{count} ({pct:.1f}%)")
+        hover_text.append(row_text)
+
     fig = px.imshow(
-        heatmap_data,
+        heatmap_pct,
         color_continuous_scale="RdYlGn_r",
         title="🔥 Mapa de Calor: Sub-segmentos × Línea de Negocio",
-        labels={"x": "Línea de Negocio", "y": "Sub-segmento", "color": "Frecuencia"},
+        labels={"x": "Línea de Negocio", "y": "Sub-segmento [Categoría]", "color": "% del Total"},
         aspect="auto",
-        text_auto=True,
+        text_auto=".1f",
+    )
+    fig.update_traces(
+        hovertemplate="<b>%{y}</b><br>Línea: %{x}<br>%{customdata}<extra></extra>",
+        customdata=hover_text,
     )
     fig.update_layout(
         **PLOTLY_LAYOUT_TEMPLATE,
-        height=520,
-        xaxis=dict(tickangle=-30, tickfont=dict(size=12, color="#1e3a8a")),
-        yaxis=dict(tickfont=dict(size=12, color="#1e3a8a")),
+        height=600,
+        xaxis=dict(tickangle=-30, tickfont=dict(size=11, color="#1e3a8a")),
+        yaxis=dict(tickfont=dict(size=10, color="#1e3a8a")),
+        margin=dict(t=80, b=70, l=180, r=50),
     )
     return fig
 
@@ -2620,11 +2657,12 @@ def render_tab_dashboard(df: pd.DataFrame):
         if fig_sunburst.data:
             st.plotly_chart(fig_sunburst, use_container_width=True)
 
-    # Heatmap sub-segmentos × línea de negocio
+    # Heatmap sub-segmentos × línea de negocio (lazy loading)
     if "sub_sentiment" in df.columns and "linea_negocio" in df.columns:
-        fig_heatmap_sub = create_heatmap_subsegments_linea(df)
-        if fig_heatmap_sub.data:
-            st.plotly_chart(fig_heatmap_sub, use_container_width=True)
+        with st.expander("🔥 Ver Mapa de Calor Detallado: Sub-segmentos × Línea de Negocio", expanded=False):
+            fig_heatmap_sub = create_heatmap_subsegments_linea(df)
+            if fig_heatmap_sub.data:
+                st.plotly_chart(fig_heatmap_sub, use_container_width=True)
 
     # Sentiment breakdown by Sucursal
     if "Sucursal" in df.columns and df["Sucursal"].str.strip().ne("").any():
@@ -2911,19 +2949,22 @@ def render_tab_comments(df: pd.DataFrame):
         sub_sent = str(row.get("sub_sentiment", "")).strip() if has_sub_sentiment else ""
         sub_emoji = SUB_SENTIMENT_EMOJI.get(sub_sent, "") if sub_sent else ""
 
-        text_preview = str(row["Valor"])[:100].strip()
+        text_preview = str(row["Valor"])[:60].strip()
         # Descomponer Unicode NFKD y luego eliminar caracteres no básicos con regex
         text_preview = unicodedata.normalize('NFKD', text_preview)
         # Eliminar TODO excepto letras, números, espacios y puntuación básica
         text_preview = re.sub(r'[^\w\s\.,;:\-¿?¡!áéíóúÁÉÍÓÚñÑüÜ()]', '', text_preview)
         # Eliminar espacios múltiples
         text_preview = re.sub(r'\s+', ' ', text_preview).strip()
-        if len(str(row["Valor"])) > 100:
+        if len(str(row["Valor"])) > 60:
             text_preview += "..."
 
-        # Título del expander con emoji de sub-segmento
-        sub_label_part = f" {sub_emoji} {sub_sent}" if sub_sent else ""
-        with st.expander(f"{sent}{sub_label_part} | {text_preview}", expanded=False):
+        # Título del expander con emoji de sub-segmento e ícono de categoría
+        CATEGORY_ICONS = {"POSITIVO": "➕", "NEGATIVO": "➖", "NEUTRAL": "⚪", "MIXTO": "🔄"}
+        cat_icon = CATEGORY_ICONS.get(sent, "")
+        sub_label_part = f" {sub_emoji} **{sub_sent}** ·" if sub_sent else " ·"
+        expander_title = f"{cat_icon}{sub_label_part} {text_preview}"
+        with st.expander(expander_title, expanded=False):
             st.markdown("---")
             st.markdown("**📝 Comentario completo:**")
             st.info(row['Valor'])
@@ -3738,13 +3779,26 @@ def render_sidebar() -> tuple:
     Renderiza la barra lateral.
 
     Retorna (selected_lineas, selected_sucursales, analyze_btn, modo_analisis,
-             selected_ubicaciones, selected_gestores, selected_tipos_val, selected_roles).
+             selected_ubicaciones, selected_gestores, selected_tipos_val,
+             selected_roles, selected_sub_sentiments, selected_fecha_range).
     """
     with st.sidebar:
         st.image("https://img.icons8.com/color/96/analytics.png", width=80)
-        st.title("⚙️ Configuración")
-        if st.button("👁️ Ocultar/Mostrar Panel", key="toggle_sidebar", help="Oculta o muestra el panel lateral de filtros"):
-            pass
+        st.markdown("""
+            <style>
+            .sidebar-header {
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                padding: 0.75rem 1rem;
+                border-radius: 10px;
+                color: white;
+                text-align: center;
+                font-weight: 600;
+                font-size: 1rem;
+                margin-bottom: 0.5rem;
+            }
+            </style>
+            <div class="sidebar-header">⚙️ Panel de Configuración</div>
+        """, unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("🔄 Modo de Análisis")
         modo_analisis = st.radio(
@@ -3847,6 +3901,8 @@ def render_sidebar() -> tuple:
         selected_gestores = None
         selected_tipos_val = None
         selected_roles = None
+        selected_sub_sentiments: list = []
+        selected_fecha_range: tuple | None = None
         df_current = st.session_state.get("df_raw")
 
         if df_current is not None:
@@ -3966,6 +4022,64 @@ def render_sidebar() -> tuple:
                         if selected_sucursales:
                             st.info(f"🏢 Filtrando por {len(selected_sucursales)} sucursal(es)")
 
+                # ──── FILTRO DE FECHA (Clientes e Intermediarios) ────
+                fecha_col = next(
+                    (c for c in df_current.columns if c.lower() in ("fecha", "date", "fecha_respuesta")),
+                    None,
+                )
+                if fecha_col:
+                    try:
+                        fechas_serie = pd.to_datetime(df_current[fecha_col], errors="coerce").dropna()
+                        if len(fechas_serie) > 0:
+                            st.markdown("---")
+                            st.markdown("### 📅 Rango de Fechas")
+                            fecha_min = fechas_serie.min().date()
+                            fecha_max = fechas_serie.max().date()
+                            col_f1, col_f2 = st.columns(2)
+                            with col_f1:
+                                fecha_desde = st.date_input(
+                                    "Desde",
+                                    value=fecha_min,
+                                    min_value=fecha_min,
+                                    max_value=fecha_max,
+                                    help="Fecha de inicio del rango",
+                                )
+                            with col_f2:
+                                fecha_hasta = st.date_input(
+                                    "Hasta",
+                                    value=fecha_max,
+                                    min_value=fecha_min,
+                                    max_value=fecha_max,
+                                    help="Fecha de fin del rango",
+                                )
+                            selected_fecha_range = (fecha_col, fecha_desde, fecha_hasta)
+                            en_rango = fechas_serie[
+                                (fechas_serie.dt.date >= fecha_desde)
+                                & (fechas_serie.dt.date <= fecha_hasta)
+                            ]
+                            st.caption(f"📊 {len(en_rango):,} registros en rango seleccionado")
+                    except Exception:
+                        pass
+
+        # ──── FILTRO UNIVERSAL DE SUB-SENTIMIENTOS ────
+        if df_current is not None and "sub_sentiment" in df_current.columns:
+            subs_disponibles = sorted(df_current["sub_sentiment"].dropna().unique().tolist())
+            if subs_disponibles:
+                st.markdown("---")
+                st.markdown("### 🎭 Sub-segmentos Emocionales")
+                cat_emoji_map = {"POSITIVO": "😊", "NEGATIVO": "😠", "NEUTRAL": "😐", "MIXTO": "🔄"}
+                for cat, subs in SUB_SENTIMENTS_BY_MAIN.items():
+                    available_in_cat = [s for s in subs if s in subs_disponibles]
+                    if available_in_cat:
+                        chosen = st.multiselect(
+                            f"{cat_emoji_map.get(cat, '')} {cat}",
+                            options=available_in_cat,
+                            default=available_in_cat,
+                            key=f"filter_sub_{cat}",
+                            help=f"Filtrar sub-sentimientos de categoría {cat}",
+                        )
+                        selected_sub_sentiments.extend(chosen)
+
         # ── IA Status banner ──────────────────────────────────────────────────
         groq_ai = GroqAnalyzer()
         if groq_ai.available:
@@ -4042,6 +4156,8 @@ def render_sidebar() -> tuple:
         selected_gestores,
         selected_tipos_val,
         selected_roles,
+        selected_sub_sentiments,
+        selected_fecha_range,
     )
 
 
@@ -4056,6 +4172,8 @@ def main():
         selected_gestores,
         selected_tipos_val,
         selected_roles,
+        selected_sub_sentiments,
+        selected_fecha_range,
     ) = render_sidebar()
 
     df_raw = st.session_state.get("df_raw", None)
@@ -4222,6 +4340,21 @@ def main():
                 st.metric("📦 Lotes procesados", f"{(total + BATCH_SIZE - 1) // BATCH_SIZE}")
 
     if df_results is not None:
+        # ── Aplicar filtros de sub-sentimientos y fechas al df_results ──────
+        if selected_sub_sentiments and "sub_sentiment" in df_results.columns:
+            df_results = df_results[df_results["sub_sentiment"].isin(selected_sub_sentiments)].reset_index(drop=True)
+
+        if selected_fecha_range is not None:
+            fecha_col_name, fecha_desde, fecha_hasta = selected_fecha_range
+            if fecha_col_name in df_results.columns:
+                fechas_parsed = pd.to_datetime(df_results[fecha_col_name], errors="coerce")
+                mask_fecha = (
+                    (fechas_parsed.dt.date >= fecha_desde)
+                    & (fechas_parsed.dt.date <= fecha_hasta)
+                )
+                df_results = df_results[mask_fecha].reset_index(drop=True)
+                st.info(f"📅 Filtrado por fechas: {fecha_desde} a {fecha_hasta} ({len(df_results):,} registros)")
+
         if is_gestor:
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "💼 Dashboard Gestión",
