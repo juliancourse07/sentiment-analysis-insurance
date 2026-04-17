@@ -633,7 +633,7 @@ class SentimentAnalyzer:
 
         # Decisión
         has_intensifier = any(w in self.INTENSIFIERS for w in clean.split())
-        _ai_sub: str | None = None  # sub_sentiment retornado por Groq, si disponible
+        ai_sub_sentiment: str | None = None  # sub_sentiment retornado por Groq, si disponible
         if beto_vote and keyword_vote == beto_vote and beto_conf >= 0.75:
             # Consenso fuerte: ambos coinciden con alta confianza
             final_label = beto_vote
@@ -660,7 +660,7 @@ class SentimentAnalyzer:
                 final_label = ai_result["label"]
                 final_conf = ai_result["confidence"]
                 ai_used = True
-                _ai_sub = ai_result.get("sub_sentiment")
+                ai_sub_sentiment = ai_result.get("sub_sentiment")
             else:
                 # IA no disponible: usar BETO con confianza reducida, pero reforzar con keywords
                 fallback = beto_vote or keyword_vote
@@ -691,8 +691,8 @@ class SentimentAnalyzer:
             "keywords_neg": neg_kw,
             "ai_validated": ai_used,
         }
-        if _ai_sub:
-            result["sub_sentiment"] = _ai_sub
+        if ai_sub_sentiment:
+            result["sub_sentiment"] = ai_sub_sentiment
         return result
 
     # Confidence assigned to Groq quick-classify responses; represents measured
@@ -736,7 +736,7 @@ class SentimentAnalyzer:
                     },
                 ],
                 temperature=0.2,
-                max_tokens=30,
+                max_tokens=40,
             )
 
             raw = response.choices[0].message.content.strip()
@@ -817,12 +817,15 @@ class SentimentAnalyzer:
 
         elif main_sentiment == "MIXTO":
             if any(w in words for w in {"gracias", "agradezco"}) and any(
-                w in words for w in {"pero", "aunque", "embargo", "sin embargo"}
+                w in words for w in {"pero", "aunque", "embargo"}
             ):
                 scores["Gratitud con Queja"] = scores.get("Gratitud con Queja", 0.0) + 3.0
             if any(w in words for w in {"mejorar", "sugerencia", "debería", "podrían", "propongo"}):
                 scores["Crítica Constructiva"] = scores.get("Crítica Constructiva", 0.0) + 2.0
-            if any(w in words for w in {"espero que", "ojalá", "quizás", "tal vez"}):
+            if (
+                any(w in words for w in {"ojalá", "quizás"})
+                or any(phrase in clean for phrase in {"espero que", "tal vez", "puede que"})
+            ):
                 scores["Esperanza Cautelosa"] = scores.get("Esperanza Cautelosa", 0.0) + 2.0
 
         # Fallbacks por sentimiento
@@ -2521,13 +2524,13 @@ def render_tab_dashboard(df: pd.DataFrame):
             cols_sub = st.columns(3)
             for i, (sub, count) in enumerate(top_subs.items()):
                 pct_sub = count / total * 100
-                emoji = SUB_SENTIMENT_EMOJI.get(str(sub), "💡")
+                emoji = SUB_SENTIMENT_EMOJI.get(sub, "💡")
                 with cols_sub[i]:
                     st.metric(
                         label=f"{emoji} {sub}",
                         value=f"{count:,}",
                         delta=f"{pct_sub:.1f}% del total",
-                        help=SUB_SENTIMENT_DEFINITIONS.get(str(sub), ""),
+                        help=SUB_SENTIMENT_DEFINITIONS.get(sub, ""),
                     )
 
     st.markdown("---")
