@@ -4085,32 +4085,32 @@ def render_sidebar() -> tuple:
                             try:
                                 # Pre-apply the same filters used by the analysis
                                 # (valor no vacío + línea + sucursal) to show real count
-                                _cols_p = detect_columns(df_current)
-                                _col_val_p = _cols_p.get("valor")
-                                _col_lin_p = _cols_p.get("linea")
-                                _col_suc_p = _cols_p.get("sucursal")
-                                _df_p = df_current.copy()
-                                if _col_val_p and _col_val_p in _df_p.columns:
-                                    _df_p = _df_p[
-                                        _df_p[_col_val_p].notna()
-                                        & (_df_p[_col_val_p].astype(str).str.strip() != "")
+                                _preview_cols = detect_columns(df_current)
+                                _preview_col_val = _preview_cols.get("valor")
+                                _preview_col_lin = _preview_cols.get("linea")
+                                _preview_col_suc = _preview_cols.get("sucursal")
+                                _df_preview = df_current.copy()
+                                if _preview_col_val and _preview_col_val in _df_preview.columns:
+                                    _df_preview = _df_preview[
+                                        _df_preview[_preview_col_val].notna()
+                                        & (_df_preview[_preview_col_val].astype(str).str.strip() != "")
                                     ]
-                                if selected_lineas and _col_lin_p and _col_lin_p in _df_p.columns:
+                                if selected_lineas and _preview_col_lin and _preview_col_lin in _df_preview.columns:
                                     _sel_lin = [str(s).strip() for s in selected_lineas]
-                                    _df_p = _df_p[_df_p[_col_lin_p].isin(_sel_lin)]
-                                if selected_sucursales and _col_suc_p and _col_suc_p in _df_p.columns:
+                                    _df_preview = _df_preview[_df_preview[_preview_col_lin].isin(_sel_lin)]
+                                if selected_sucursales and _preview_col_suc and _preview_col_suc in _df_preview.columns:
                                     _sel_suc = [str(s).strip() for s in selected_sucursales]
-                                    _df_p = _df_p[_df_p[_col_suc_p].isin(_sel_suc)]
-                                _fechas_p = pd.to_datetime(_df_p[fecha_col], errors="coerce")
-                                _n_real = int(
+                                    _df_preview = _df_preview[_df_preview[_preview_col_suc].isin(_sel_suc)]
+                                _fechas_preview = pd.to_datetime(_df_preview[fecha_col], errors="coerce")
+                                _n_filtered = int(
                                     (
-                                        (_fechas_p.dt.date >= fecha_desde)
-                                        & (_fechas_p.dt.date <= fecha_hasta)
+                                        (_fechas_preview.dt.date >= fecha_desde)
+                                        & (_fechas_preview.dt.date <= fecha_hasta)
                                     ).sum()
                                 )
                                 st.caption(
                                     f"📊 {len(en_rango):,} filas en rango | "
-                                    f"{_n_real:,} se analizarán con los filtros actuales"
+                                    f"{_n_filtered:,} se analizarán con los filtros actuales"
                                 )
                             except Exception:
                                 st.caption(f"📊 {len(en_rango):,} registros en rango seleccionado")
