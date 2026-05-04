@@ -1979,51 +1979,37 @@ def _apply_sucursal_filter(
 
 def parse_fecha_column(df: pd.DataFrame, date_col: str) -> pd.Series:
     """
-    Parsea una columna de fechas probando múltiples formatos explícitos.
+    Parsea una columna de fechas con DD/MM/YYYY como formato prioritario fijo.
 
-    Formatos soportados (en orden de prioridad):
-    - DD/MM/YYYY  (Clientes, Intermediarios)
-    - MM/DD/YYYY  (Gestor)
-    - YYYY-MM-DD  (ISO)
-    - DD-MM-YYYY
-    - YYYY/MM/DD
+    Formato confirmado por el usuario para todas las hojas (Clientes, Intermediarios, Gestor).
+    Se prueban formatos alternativos solo si DD/MM/YYYY no produce ningún resultado válido.
 
     Las fechas futuras (> hoy + 1 día de tolerancia) se convierten a NaT.
     """
     raw = df[date_col].copy()
     fecha_maxima = datetime.now() + timedelta(days=1)
 
-    formatos = [
-        "%d/%m/%Y",  # DD/MM/YYYY  (Clientes, Intermediarios)
-        "%m/%d/%Y",  # MM/DD/YYYY  (Gestor)
-        "%Y-%m-%d",  # YYYY-MM-DD  (ISO)
-        "%d-%m-%Y",  # DD-MM-YYYY
-        "%Y/%m/%d",  # YYYY/MM/DD
-    ]
+    # Intentar DD/MM/YYYY primero (formato confirmado por el usuario)
+    parsed = pd.to_datetime(raw, format="%d/%m/%Y", errors="coerce")
+    valid = parsed.notna().sum()
+    if valid > 0:
+        parsed = parsed.where(parsed <= fecha_maxima, pd.NaT)
+        return parsed
 
-    best: pd.Series | None = None
-    best_valid = -1
-
-    for fmt in formatos:
+    # Fallback a otros formatos si DD/MM/YYYY no produce resultados
+    for fmt in ["%m/%d/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"]:
         try:
-            parsed = pd.to_datetime(raw, format=fmt, errors="coerce")
-            valid_count = parsed.notna().sum()
-            if valid_count > best_valid:
-                # Invalidate future dates
-                parsed = parsed.where(parsed <= fecha_maxima, pd.NaT)
-                valid_after = parsed.notna().sum()
-                if valid_after > best_valid:
-                    best = parsed
-                    best_valid = valid_after
+            p = pd.to_datetime(raw, format=fmt, errors="coerce")
+            v = p.notna().sum()
+            if v > 0:
+                p = p.where(p <= fecha_maxima, pd.NaT)
+                return p
         except Exception:
             continue
 
-    # Fallback: inferencia automática de pandas
-    if best is None or best_valid == 0:
-        best = pd.to_datetime(raw, errors="coerce", infer_datetime_format=True)
-        best = best.where(best <= fecha_maxima, pd.NaT)
-
-    return best
+    # Último fallback: inferencia automática de pandas
+    best = pd.to_datetime(raw, errors="coerce", infer_datetime_format=True)
+    return best.where(best <= fecha_maxima, pd.NaT)
 
 
 def filter_open_responses(
@@ -2075,11 +2061,14 @@ def filter_open_responses(
         except Exception:
             filtered["fecha"] = pd.NaT
 
-    # Apply línea filter
+    # Apply línea filter — lista vacía = todas las líneas
     if selected_lineas:
         sel_norm = [str(s).strip() for s in selected_lineas]
-        mask_linea = filtered["linea_negocio"].isin(sel_norm)
-        filtered = filtered[mask_linea]
+        if sel_norm:  # Solo filtrar si hay elementos concretos
+            mask_linea = filtered["linea_negocio"].isin(sel_norm)
+            filtered_by_linea = filtered[mask_linea]
+            if not filtered_by_linea.empty:
+                filtered = filtered_by_linea
 
     # Apply sucursal filter
     filtered = _apply_sucursal_filter(filtered, selected_sucursales, col_suc)
@@ -4054,7 +4043,7 @@ def render_sidebar() -> tuple:
                 )
                 if fecha_col:
                     try:
-                        fechas_serie = pd.to_datetime(df_current[fecha_col], errors="coerce").dropna()
+                        fechas_serie = parse_fecha_column(df_current, fecha_col).dropna()
                         if len(fechas_serie) > 0:
                             st.markdown("---")
                             st.markdown("### 📅 Rango de Fechas")
@@ -4101,7 +4090,7 @@ def render_sidebar() -> tuple:
                                 if selected_sucursales and _preview_col_suc and _preview_col_suc in _df_preview.columns:
                                     _sel_suc = [str(s).strip() for s in selected_sucursales]
                                     _df_preview = _df_preview[_df_preview[_preview_col_suc].isin(_sel_suc)]
-                                _fechas_preview = pd.to_datetime(_df_preview[fecha_col], errors="coerce")
+                                _fechas_preview = parse_fecha_column(_df_preview, fecha_col)
                                 _n_filtered = int(
                                     (
                                         (_fechas_preview.dt.date >= fecha_desde)
@@ -4304,13 +4293,19 @@ def main():
         if selected_fecha_range is not None:
             fecha_col_name, fecha_desde, fecha_hasta = selected_fecha_range
             if fecha_col_name in df_filtered.columns:
-                fechas_parsed = pd.to_datetime(df_filtered[fecha_col_name], errors="coerce")
+                fechas_parsed = parse_fecha_column(df_filtered, fecha_col_name)
                 mask_fecha = (
                     (fechas_parsed.dt.date >= fecha_desde)
                     & (fechas_parsed.dt.date <= fecha_hasta)
                 )
-                df_filtered = df_filtered[mask_fecha].reset_index(drop=True)
-                st.info(f"📅 Filtrado por fechas antes del análisis: {fecha_desde} a {fecha_hasta} ({len(df_filtered):,} registros)")
+                df_filtrado_fecha = df_filtered[mask_fecha].reset_index(drop=True)
+                if df_filtrado_fecha.empty:
+                    st.warning(
+                        "⚠️ El rango de fechas seleccionado no contiene registros. Se usarán todos los registros."
+                    )
+                else:
+                    df_filtered = df_filtrado_fecha
+                    st.info(f"📅 Filtrado por fechas antes del análisis: {fecha_desde} a {fecha_hasta} ({len(df_filtered):,} registros)")
 
         if df_filtered.empty:
             st.warning("⚠️ No hay registros en el rango de fechas seleccionado.")
@@ -4419,13 +4414,19 @@ def main():
         if selected_fecha_range is not None:
             fecha_col_name, fecha_desde, fecha_hasta = selected_fecha_range
             if fecha_col_name in df_results.columns:
-                fechas_parsed = pd.to_datetime(df_results[fecha_col_name], errors="coerce")
+                fechas_parsed = parse_fecha_column(df_results, fecha_col_name)
                 mask_fecha = (
                     (fechas_parsed.dt.date >= fecha_desde)
                     & (fechas_parsed.dt.date <= fecha_hasta)
                 )
-                df_results = df_results[mask_fecha].reset_index(drop=True)
-                st.info(f"📅 Filtrado por fechas: {fecha_desde} a {fecha_hasta} ({len(df_results):,} registros)")
+                df_filtrado_results = df_results[mask_fecha].reset_index(drop=True)
+                if df_filtrado_results.empty:
+                    st.warning(
+                        "⚠️ El rango de fechas seleccionado no contiene registros en los resultados. Se mostrarán todos los resultados."
+                    )
+                else:
+                    df_results = df_filtrado_results
+                    st.info(f"📅 Filtrado por fechas: {fecha_desde} a {fecha_hasta} ({len(df_results):,} registros)")
 
         if is_gestor:
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
