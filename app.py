@@ -4082,7 +4082,38 @@ def render_sidebar() -> tuple:
                                 (fechas_serie.dt.date >= fecha_desde)
                                 & (fechas_serie.dt.date <= fecha_hasta)
                             ]
-                            st.caption(f"📊 {len(en_rango):,} registros en rango seleccionado")
+                            try:
+                                # Pre-apply the same filters used by the analysis
+                                # (valor no vacío + línea + sucursal) to show real count
+                                _preview_cols = detect_columns(df_current)
+                                _preview_col_val = _preview_cols.get("valor")
+                                _preview_col_lin = _preview_cols.get("linea")
+                                _preview_col_suc = _preview_cols.get("sucursal")
+                                _df_preview = df_current.copy()
+                                if _preview_col_val and _preview_col_val in _df_preview.columns:
+                                    _df_preview = _df_preview[
+                                        _df_preview[_preview_col_val].notna()
+                                        & (_df_preview[_preview_col_val].astype(str).str.strip() != "")
+                                    ]
+                                if selected_lineas and _preview_col_lin and _preview_col_lin in _df_preview.columns:
+                                    _sel_lin = [str(s).strip() for s in selected_lineas]
+                                    _df_preview = _df_preview[_df_preview[_preview_col_lin].isin(_sel_lin)]
+                                if selected_sucursales and _preview_col_suc and _preview_col_suc in _df_preview.columns:
+                                    _sel_suc = [str(s).strip() for s in selected_sucursales]
+                                    _df_preview = _df_preview[_df_preview[_preview_col_suc].isin(_sel_suc)]
+                                _fechas_preview = pd.to_datetime(_df_preview[fecha_col], errors="coerce")
+                                _n_filtered = int(
+                                    (
+                                        (_fechas_preview.dt.date >= fecha_desde)
+                                        & (_fechas_preview.dt.date <= fecha_hasta)
+                                    ).sum()
+                                )
+                                st.caption(
+                                    f"📊 {len(en_rango):,} filas en rango | "
+                                    f"{_n_filtered:,} se analizarán con los filtros actuales"
+                                )
+                            except Exception:
+                                st.caption(f"📊 {len(en_rango):,} registros en rango seleccionado")
                     except Exception:
                         pass
 
