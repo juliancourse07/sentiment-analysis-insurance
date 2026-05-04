@@ -4082,7 +4082,38 @@ def render_sidebar() -> tuple:
                                 (fechas_serie.dt.date >= fecha_desde)
                                 & (fechas_serie.dt.date <= fecha_hasta)
                             ]
-                            st.caption(f"📊 {len(en_rango):,} registros en rango seleccionado")
+                            try:
+                                # Pre-apply the same filters used by the analysis
+                                # (valor no vacío + línea + sucursal) to show real count
+                                _cols_p = detect_columns(df_current)
+                                _col_val_p = _cols_p.get("valor")
+                                _col_lin_p = _cols_p.get("linea")
+                                _col_suc_p = _cols_p.get("sucursal")
+                                _df_p = df_current.copy()
+                                if _col_val_p and _col_val_p in _df_p.columns:
+                                    _df_p = _df_p[
+                                        _df_p[_col_val_p].notna()
+                                        & (_df_p[_col_val_p].astype(str).str.strip() != "")
+                                    ]
+                                if selected_lineas and _col_lin_p and _col_lin_p in _df_p.columns:
+                                    _sel_lin = [str(s).strip() for s in selected_lineas]
+                                    _df_p = _df_p[_df_p[_col_lin_p].isin(_sel_lin)]
+                                if selected_sucursales and _col_suc_p and _col_suc_p in _df_p.columns:
+                                    _sel_suc = [str(s).strip() for s in selected_sucursales]
+                                    _df_p = _df_p[_df_p[_col_suc_p].isin(_sel_suc)]
+                                _fechas_p = pd.to_datetime(_df_p[fecha_col], errors="coerce")
+                                _n_real = int(
+                                    (
+                                        (_fechas_p.dt.date >= fecha_desde)
+                                        & (_fechas_p.dt.date <= fecha_hasta)
+                                    ).sum()
+                                )
+                                st.caption(
+                                    f"📊 {len(en_rango):,} filas en rango | "
+                                    f"{_n_real:,} se analizarán con los filtros actuales"
+                                )
+                            except Exception:
+                                st.caption(f"📊 {len(en_rango):,} registros en rango seleccionado")
                     except Exception:
                         pass
 
